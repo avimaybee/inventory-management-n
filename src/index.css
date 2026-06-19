@@ -1,0 +1,150 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #fafafa;
+  color: #111827;
+}
+
+/* Hide scrollbar for stepper */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --background: #FDFCF8;
+    --foreground: #1C1A16;
+    --card: #FFFFFF;
+    --card-foreground: #1C1A16;
+    --popover: #FFFFFF;
+    --popover-foreground: #1C1A16;
+    --primary: #FFD700;
+    --primary-foreground: #1C1A16;
+    --secondary: #14532D;
+    --secondary-foreground: #FFFFFF;
+    --muted: #F5EFEB;
+    --muted-foreground: #1C1A16;
+    --accent: #C9B99A;
+    --accent-foreground: #1C1A16;
+    --destructive: #ef4444;
+    --border: #C9B99A;
+    --input: #C9B99A;
+    --ring: #14532D;
+    --chart-1: #14532D;
+    --chart-2: #FFD700;
+    --chart-3: #C9B99A;
+    --chart-4: #1C1A16;
+    --chart-5: #FDFCF8;
+    --radius: 0.5rem;
+    --sidebar: #FFFFFF;
+    --sidebar-foreground: #1C1A16;
+    --sidebar-primary: #14532D;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #C9B99A;
+    --sidebar-accent-foreground: #1C1A16;
+    --sidebar-border: #C9B99A;
+    --sidebar-ring: #14532D;
+}
+
+.dark {
+    --background: #1C1A16;
+    --foreground: #FDFCF8;
+    --card: #1C1A16;
+    --card-foreground: #FDFCF8;
+    --popover: #1C1A16;
+    --popover-foreground: #FDFCF8;
+    --primary: #FFD700;
+    --primary-foreground: #1C1A16;
+    --secondary: #14532D;
+    --secondary-foreground: #FDFCF8;
+    --muted: #14532D;
+    --muted-foreground: #C9B99A;
+    --accent: #FFD700;
+    --accent-foreground: #1C1A16;
+    --destructive: #ef4444;
+    --border: #14532D;
+    --input: #14532D;
+    --ring: #FFD700;
+    --chart-1: #14532D;
+    --chart-2: #FFD700;
+    --chart-3: #C9B99A;
+    --chart-4: #FDFCF8;
+    --chart-5: #1C1A16;
+    --sidebar: #1C1A16;
+    --sidebar-foreground: #FDFCF8;
+    --sidebar-primary: #FFD700;
+    --sidebar-primary-foreground: #1C1A16;
+    --sidebar-accent: #14532D;
+    --sidebar-accent-foreground: #FDFCF8;
+    --sidebar-border: #14532D;
+    --sidebar-ring: #FFD700;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}
