@@ -32,7 +32,12 @@ function getDb(env: Record<string, any>) {
 
 export async function onRequestGet(context) {
   try {
-    const db = getDb(context.env);
+    const env = context.env;
+    if (!env.DB) {
+      return new Response(JSON.stringify({ error: 'DB binding missing' }), { status: 500 });
+    }
+
+    const db = drizzle(env.DB);
     const allOrders = await db.select().from(orders).orderBy(desc(orders.date));
     const allItems = await db.select().from(orderLineItems);
 
