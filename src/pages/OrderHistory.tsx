@@ -51,8 +51,11 @@ export function OrderHistory() {
     setLoading(true);
     setError(null);
     fetch('/api/orders')
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to load orders");
+      .then(async res => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Failed to load orders");
+        }
         return res.json();
       })
       .then(data => {
@@ -61,7 +64,7 @@ export function OrderHistory() {
       })
       .catch(err => {
         console.error(err);
-        setError("Unable to load history. Please try again later.");
+        setError(err.message || "Unable to load history. Please try again later.");
         setLoading(false);
       });
   };
