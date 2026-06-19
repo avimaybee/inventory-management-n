@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Search, Loader2, ArrowUpDown, ArrowUp, ArrowDown, FileText, PackageOpen, ExternalLink, ChevronLeft, Plus, X, ServerCrash, RotateCcw, Copy, Printer } from "lucide-react";
 import { PRODUCTS, PACKAGING, BRANDS, CATEGORIES, FEED_TYPES } from "@/src/lib/catalog";
 import { OrderItem } from "@/src/types";
+import { useAuth } from "@/src/lib/auth";
 
 interface DBOrder {
   id: number;
@@ -46,27 +47,38 @@ export function OrderHistory() {
   const [orders, setOrders] = useState<DBOrder[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { getToken } = useAuth();
 
-  const fetchOrders = () => {
+  const fetchOrders = async () => {
     setLoading(true);
     setError(null);
-    fetch('/api/orders')
-      .then(async res => {
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || "Failed to load orders");
-        }
-        return res.json();
-      })
-      .then(data => {
-        setOrders(Array.isArray(data) ? data : []);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("Not authenticated");
         setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setError(err.message || "Unable to load history. Please try again later.");
-        setLoading(false);
+        return;
+      }
+      const res = await fetch('/api/orders', {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        setError("Session expired. Please sign in again.");
+        setLoading(false);
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to load orders");
+      }
+      const data = await res.json();
+      setOrders(Array.isArray(data) ? data : []);
+      setLoading(false);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Unable to load history. Please try again later.");
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

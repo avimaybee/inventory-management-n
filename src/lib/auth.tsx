@@ -23,6 +23,7 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
+  getToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -91,8 +92,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearError = () => setError(null);
 
+  const getToken = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return null;
+    try {
+      return await currentUser.getIdToken();
+    } catch {
+      return null;
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, loginWithGoogle, logout, clearError }}>
+    <AuthContext.Provider value={{ user, loading, error, login, loginWithGoogle, logout, clearError, getToken }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/d1';
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 import { eq, desc } from 'drizzle-orm';
+import { verifyToken, extractToken, checkOrigin, checkRateLimit, SHEET_ID_REGEX } from '../utils/auth';
 
 const orders = sqliteTable('orders', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -25,17 +26,52 @@ const orderLineItems = sqliteTable('order_line_items', {
 
 function getDb(env: Record<string, any>) {
   if (!env.DB) {
-    throw new Error('D1 database binding "DB" is not configured. Add it in Cloudflare Dashboard > Functions > D1 Database Bindings.');
+    throw new Error('DB binding not configured');
   }
   return drizzle(env.DB);
 }
 
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function unauthorized(message = 'Unauthorized') {
+  return json({ error: message }, 401);
+}
+
+function tooManyRequests(retryAfter: number) {
+  return new Response(JSON.stringify({ error: 'Too many requests' }), {
+    status: 429,
+    headers: { 'Retry-After': String(retryAfter) },
+  });
+}
+
+async function authenticate(request: Request) {
+  const token = extractToken(request);
+  if (!token) return null;
+  try {
+    return await verifyToken(token);
+  } catch {
+    return null;
+  }
+}
+
 export async function onRequestGet(context) {
   try {
+    const user = await authenticate(context.request);
+    if (!user) return unauthorized();
+
+    if (!checkOrigin(context.request)) return json({ error: 'Forbidden' }, 403);
+
+    const rlKey = `get:${user.uid}`;
+    const rl = checkRateLimit(rlKey);
+    if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
+
     const env = context.env;
-    if (!env.DB) {
-      return new Response(JSON.stringify({ error: 'DB binding missing' }), { status: 500 });
-    }
+    if (!env.DB) return json({ error: 'Service unavailable' }, 500);
 
     const db = drizzle(env.DB);
     const allOrders = await db.select().from(orders).orderBy(desc(orders.date));
@@ -43,31 +79,86 @@ export async function onRequestGet(context) {
 
     const ordersWithItems = allOrders.map(o => ({
       ...o,
-      items: allItems.filter(i => i.orderId === o.id)
+      items: allItems.filter(i => i.orderId === o.id),
     }));
 
-    return new Response(JSON.stringify(ordersWithItems), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (err: any) {
-    console.error(err);
-    return new Response(JSON.stringify({ error: err.message || 'Failed to fetch orders' }), { status: 500 });
+    return json(ordersWithItems);
+  } catch {
+    return json({ error: 'Internal error' }, 500);
   }
 }
 
 export async function onRequestPost(context) {
   try {
-    const db = getDb(context.env);
-    const { partyName, location, items } = await context.request.json();
-    const totalWeight = items.reduce((sum: number, item: any) => sum + item.weightQuintals, 0);
+    const user = await authenticate(context.request);
+    if (!user) return unauthorized();
 
-    const newOrder = await db.insert(orders).values({
-      date: new Date().toISOString(),
-      partyName,
-      location,
-      totalWeight,
-      status: 'pending'
-    }).returning();
+    if (!checkOrigin(context.request)) return json({ error: 'Forbidden' }, 403);
+
+    const rlKey = `post:${user.uid}`;
+    const rl = checkRateLimit(rlKey);
+    if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
+
+    const env = context.env;
+    if (!env.DB) return json({ error: 'Service unavailable' }, 500);
+
+    let body: any;
+    try {
+      body = await context.request.json();
+    } catch {
+      return json({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const { partyName, location, items } = body;
+
+    if (typeof partyName !== 'string' || partyName.length === 0 || partyName.length > 200) {
+      return json({ error: 'partyName must be a non-empty string (max 200)' }, 400);
+    }
+    if (typeof location !== 'string' || location.length === 0 || location.length > 200) {
+      return json({ error: 'location must be a non-empty string (max 200)' }, 400);
+    }
+    if (!Array.isArray(items) || items.length === 0 || items.length > 200) {
+      return json({ error: 'items must be a non-empty array (max 200)' }, 400);
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (typeof item.brandName !== 'string' || !item.brandName) {
+        return json({ error: `items[${i}].brandName is required` }, 400);
+      }
+      if (typeof item.categoryName !== 'string' || !item.categoryName) {
+        return json({ error: `items[${i}].categoryName is required` }, 400);
+      }
+      if (typeof item.feedTypeName !== 'string' || !item.feedTypeName) {
+        return json({ error: `items[${i}].feedTypeName is required` }, 400);
+      }
+      if (typeof item.productName !== 'string' || !item.productName) {
+        return json({ error: `items[${i}].productName is required` }, 400);
+      }
+      if (typeof item.packagingWeightKg !== 'number' || item.packagingWeightKg <= 0) {
+        return json({ error: `items[${i}].packagingWeightKg must be a positive number` }, 400);
+      }
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 100000) {
+        return json({ error: `items[${i}].quantity must be an integer between 1 and 100000` }, 400);
+      }
+      if (typeof item.weightQuintals !== 'number' || item.weightQuintals <= 0 || item.weightQuintals > 100000) {
+        return json({ error: `items[${i}].weightQuintals must be a positive number (max 100000)` }, 400);
+      }
+    }
+
+    const totalWeight = items.reduce((sum: number, item: any) => sum + item.weightQuintals, 0);
+    const db = getDb(env);
+
+    const newOrder = await db
+      .insert(orders)
+      .values({
+        date: new Date().toISOString(),
+        partyName,
+        location,
+        totalWeight,
+        status: 'pending',
+      })
+      .returning();
 
     const orderId = newOrder[0].id;
 
@@ -84,20 +175,22 @@ export async function onRequestPost(context) {
       });
     }
 
-    if (context.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && context.env.GOOGLE_PRIVATE_KEY && context.env.SPREADSHEET_ID) {
-      try {
-        await syncToGoogleSheets(newOrder[0], items, context.env, db);
-      } catch (err) {
-        console.error('Google Sheets sync failed', err);
+    if (env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY && env.SPREADSHEET_ID) {
+      if (!SHEET_ID_REGEX.test(env.SPREADSHEET_ID)) {
+        console.error('Invalid SPREADSHEET_ID format');
+      } else {
+        try {
+          await syncToGoogleSheets(newOrder[0], items, env, db);
+        } catch (err) {
+          console.error('Google Sheets sync failed', err);
+        }
       }
     }
 
-    return new Response(JSON.stringify({ success: true, orderId }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (err: any) {
+    return json({ success: true, orderId });
+  } catch (err) {
     console.error(err);
-    return new Response(JSON.stringify({ error: err.message || 'Failed to save order' }), { status: 500 });
+    return json({ error: 'Internal error' }, 500);
   }
 }
 
@@ -153,7 +246,7 @@ async function syncToGoogleSheets(order: any, items: any[], env: Record<string, 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ values }),
-    }
+    },
   );
 
   if (!res.ok) {

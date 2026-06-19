@@ -13,6 +13,7 @@ import { useNavigate } from "react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Search, Plus, Trash2, Save, ChevronsUpDown, Check, AlertCircle, Pencil, ShoppingCart, Loader2, X, Undo, CheckCircle2, ArrowRight, Printer } from "lucide-react";
+import { useAuth } from "@/src/lib/auth";
 
 function AutocompleteInput({
   value,
@@ -460,6 +461,7 @@ const PARTY_QUICK_ADDS: Record<string, QuickAddItem[]> = {
 
 export function NewOrder() {
   const navigate = useNavigate();
+  const { getToken } = useAuth();
   const [items, setItems] = useState<OrderItem[]>([]);
   const [partyName, setPartyName] = useState("");
   const [location, setLocation] = useState("");
@@ -865,18 +867,31 @@ export function NewOrder() {
 
   const executeSaveOrder = async () => {
     if (submitStatus === 'saving' || submitStatus === 'saved') return;
+    const token = await getToken();
+    if (!token) {
+      setSubmitStatus('save_error');
+      setSubmitMessage("Not authenticated. Please sign in again.");
+      return;
+    }
     setSubmitStatus('saving');
     setSubmitMessage("Saving order…");
     try {
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ partyName, location, items })
       });
       
       const data = await res.json();
+      
+      if (res.status === 401) {
+        setSubmitStatus('save_error');
+        setSubmitMessage("Session expired. Please sign in again.");
+        return;
+      }
       
       if (!res.ok) throw new Error(data.error || "Failed to save order");
 
