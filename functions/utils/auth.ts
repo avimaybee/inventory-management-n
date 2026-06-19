@@ -42,6 +42,14 @@ const RATE_LIMIT_MAX = 60;
 
 export function checkRateLimit(key: string): { allowed: boolean; retryAfter?: number } {
   const now = Date.now();
+
+  if (requestCounts.size > 1000) {
+    const cutoff = now - RATE_LIMIT_WINDOW * 2;
+    for (const [k, entry] of requestCounts) {
+      if (entry.windowStart < cutoff) requestCounts.delete(k);
+    }
+  }
+
   const entry = requestCounts.get(key);
 
   if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW) {

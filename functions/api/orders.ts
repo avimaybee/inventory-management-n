@@ -34,7 +34,10 @@ function getDb(env: Record<string, any>) {
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, private',
+    },
   });
 }
 
@@ -45,7 +48,10 @@ function unauthorized(message = 'Unauthorized') {
 function tooManyRequests(retryAfter: number) {
   return new Response(JSON.stringify({ error: 'Too many requests' }), {
     status: 429,
-    headers: { 'Retry-After': String(retryAfter) },
+    headers: {
+      'Retry-After': String(retryAfter),
+      'Cache-Control': 'no-store, private',
+    },
   });
 }
 
@@ -101,6 +107,16 @@ export async function onRequestPost(context) {
 
     const env = context.env;
     if (!env.DB) return json({ error: 'Service unavailable' }, 500);
+
+    const contentType = context.request.headers.get('Content-Type') || '';
+    if (!contentType.startsWith('application/json')) {
+      return json({ error: 'Content-Type must be application/json' }, 415);
+    }
+
+    const contentLength = parseInt(context.request.headers.get('Content-Length') || '0', 10);
+    if (contentLength > 1_048_576) {
+      return json({ error: 'Request body too large' }, 413);
+    }
 
     let body: any;
     try {
