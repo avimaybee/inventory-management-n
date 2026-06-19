@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Loader2, ArrowUpDown, ArrowUp, ArrowDown, FileText, PackageOpen, ExternalLink, ChevronLeft, Plus, X, ServerCrash, RotateCcw, Copy } from "lucide-react";
+import { Search, Loader2, ArrowUpDown, ArrowUp, ArrowDown, FileText, PackageOpen, ExternalLink, ChevronLeft, Plus, X, ServerCrash, RotateCcw, Copy, Printer } from "lucide-react";
 import { PRODUCTS, PACKAGING, BRANDS, CATEGORIES, FEED_TYPES } from "@/src/lib/catalog";
 import { OrderItem } from "@/src/types";
 
@@ -696,12 +696,16 @@ function OrderDetail({ orders, loading, error, onRetry }: { orders: DBOrder[] | 
             <Copy className="h-4 w-4 mr-2" />
             Repeat order
           </Button>
+          <Button variant="outline" className="h-11 sm:h-9 px-4 print:hidden" onClick={() => window.print()}>
+            <Printer className="h-4 w-4 mr-2" />
+            Print
+          </Button>
         </div>
       </div>
 
-      <div className="rounded-xl border border-border shadow-sm overflow-hidden bg-card">
+      <div className="rounded-xl border border-border shadow-sm overflow-hidden bg-card print:border print:shadow-none print:bg-white">
         <Table>
-          <TableHeader className="bg-muted">
+          <TableHeader className="bg-muted print:bg-gray-100">
             <TableRow>
               <TableHead>Product details</TableHead>
               <TableHead>Size</TableHead>
@@ -714,7 +718,7 @@ function OrderDetail({ orders, loading, error, onRetry }: { orders: DBOrder[] | 
               <TableRow key={item.id} className="hover:bg-transparent">
                 <TableCell>
                   <div className="font-medium text-sm">{item.product}</div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5">
+                  <div className="text-[11px] text-muted-foreground mt-0.5 print:text-gray-600">
                     {item.brand} • {item.category} • {item.feedType}
                   </div>
                 </TableCell>
@@ -727,15 +731,15 @@ function OrderDetail({ orders, loading, error, onRetry }: { orders: DBOrder[] | 
             ))}
           </TableBody>
         </Table>
-        <div className="bg-muted/50 p-4 flex sm:flex-row flex-col justify-between items-start sm:items-center gap-4 border-t border-border">
+        <div className="bg-muted/50 p-4 flex sm:flex-row flex-col justify-between items-start sm:items-center gap-4 border-t border-border print:bg-gray-100 print:border-gray-300">
           <div className="text-sm font-medium text-foreground flex items-center gap-2">
             <span>Total items:</span>
-            <span className="text-muted-foreground font-normal">{totalBags} bags</span>
+            <span className="text-muted-foreground font-normal print:text-gray-600">{totalBags} bags</span>
           </div>
           <div className="text-sm flex flex-col sm:items-end">
-            <span className="text-muted-foreground text-xs font-semibold mb-0.5">Total weight</span>
-            <span className="font-bold text-2xl text-secondary flex items-baseline gap-1">
-              {order.totalWeight.toFixed(2)} <span className="text-sm text-muted-foreground font-normal">Qtl</span>
+            <span className="text-muted-foreground text-xs font-semibold mb-0.5 print:text-gray-600">Total weight</span>
+            <span className="font-bold text-2xl text-secondary flex items-baseline gap-1 print:text-black">
+              {order.totalWeight.toFixed(2)} <span className="text-sm text-muted-foreground font-normal print:text-gray-600">Qtl</span>
             </span>
           </div>
         </div>

@@ -12,7 +12,7 @@ import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui
 import { useNavigate } from "react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Search, Plus, Trash2, Save, ChevronsUpDown, Check, AlertCircle, Pencil, ShoppingCart, Loader2, X, Undo, CheckCircle2, ArrowRight } from "lucide-react";
+import { Search, Plus, Trash2, Save, ChevronsUpDown, Check, AlertCircle, Pencil, ShoppingCart, Loader2, X, Undo, CheckCircle2, ArrowRight, Printer } from "lucide-react";
 
 function AutocompleteInput({
   value,
@@ -465,7 +465,7 @@ export function NewOrder() {
   const [location, setLocation] = useState("");
   const [createdParties, setCreatedParties] = useState<string[]>([]);
   const [createdLocations, setCreatedLocations] = useState<Record<string, string[]>>({});
-  const [submitStatus, setSubmitStatus] = useState<'idle' | 'validating' | 'saving' | 'saved' | 'validation_error' | 'save_error' | 'sync_error'>('idle');
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'validating' | 'saving' | 'saved' | 'validation_error' | 'save_error'>('idle');
   const [submitMessage, setSubmitMessage] = useState("");
   const [formErrors, setFormErrors] = useState<{partyName?: string, location?: string}>({});
   const [draftRestored, setDraftRestored] = useState(false);
@@ -480,7 +480,7 @@ export function NewOrder() {
     totalBags: number;
     totalWeight: number;
     date: string;
-    syncStatus?: string;
+    items: OrderItem[];
   } | null>(null);
   const isDirty = items.length > 0 || partyName.trim() !== '' || location.trim() !== '';
   
@@ -510,7 +510,7 @@ export function NewOrder() {
   }, []);
 
   useEffect(() => {
-    if (submitStatus === 'saved' || submitStatus === 'sync_error') return;
+    if (submitStatus === 'saved') return;
     
     if (isDirty) {
       const draftObj: any = { partyName, location, items };
@@ -521,7 +521,7 @@ export function NewOrder() {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (submitStatus === 'saved' || submitStatus === 'sync_error') return;
+      if (submitStatus === 'saved') return;
       if (isDirty) {
         e.preventDefault();
         e.returnValue = '';
@@ -887,16 +887,11 @@ export function NewOrder() {
         totalBags: items.reduce((sum, i) => sum + i.quantity, 0),
         totalWeight: totalOrderWeight,
         date: new Date().toISOString(),
-        syncStatus: data.syncStatus
+        items
       });
       
-      if (data.syncStatus === 'failed') {
-        setSubmitStatus('sync_error');
-        setSubmitMessage("Order saved locally, but background spreadsheet sync failed. It will retry automatically.");
-      } else {
-        setSubmitStatus('saved');
-        setSubmitMessage("Order submitted successfully!");
-      }
+      setSubmitStatus('saved');
+      setSubmitMessage("Order submitted successfully!");
       
       localStorage.removeItem('new_order_draft');
       setShowReviewDialog(false);
@@ -966,44 +961,69 @@ export function NewOrder() {
 
   if (savedOrderDetails) {
     return (
-      <div className="max-w-md mx-auto w-full p-4 lg:p-6 pb-32 lg:pb-6 flex items-center justify-center">
-        <div className="bg-card w-full border rounded-lg p-6 lg:p-8 flex flex-col items-center text-center">
-          <div className="h-16 w-16 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-500 rounded-full flex items-center justify-center mb-6 shrink-0">
+      <div className="max-w-2xl mx-auto w-full p-4 lg:p-6 pb-32 lg:pb-6 print:pb-0">
+        <div className="bg-card w-full border rounded-lg p-6 lg:p-8 flex flex-col items-center text-center print:border-none print:p-0">
+          <div className="h-16 w-16 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-500 rounded-full flex items-center justify-center mb-6 shrink-0 print:hidden">
             <CheckCircle2 className="h-8 w-8" strokeWidth={2.5} />
           </div>
           
           <h2 className="text-2xl font-bold tracking-tight mb-2">Order Confirmed</h2>
-          <p className="text-muted-foreground mb-8">
+          <p className="text-muted-foreground mb-6 print:mb-4">
             Your order for <span className="font-medium text-foreground">{savedOrderDetails.partyName}</span> in <span className="font-medium text-foreground">{savedOrderDetails.location}</span> has been successfully placed.
           </p>
-          
-          <div className="w-full bg-secondary/5 rounded-lg p-4 mb-8 space-y-3 shrink-0 text-left border overflow-hidden">
+
+          <div className="w-full bg-secondary/5 rounded-lg p-4 mb-6 space-y-3 shrink-0 text-left border overflow-hidden print:border print:bg-white print:text-black">
             <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground text-xs font-semibold">Order ID</span>
+              <span className="text-muted-foreground text-xs font-semibold print:text-gray-600">Order ID</span>
               <span className="font-mono font-medium">#{savedOrderDetails.id}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground text-xs font-semibold">Date</span>
+              <span className="text-muted-foreground text-xs font-semibold print:text-gray-600">Date</span>
               <span className="font-medium">{new Date(savedOrderDetails.date).toLocaleDateString()}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground text-xs font-semibold">Total bags</span>
-              <span className="font-medium tabular-nums">{savedOrderDetails.totalBags}</span>
-            </div>
-            <div className="flex justify-between items-center text-sm border-t pt-3 mt-3">
-              <span className="text-xs font-bold text-foreground">Total weight</span>
-              <span className="font-bold tabular-nums text-foreground">{savedOrderDetails.totalWeight.toFixed(2)} <span className="text-muted-foreground font-normal text-xs">Qtl</span></span>
+              <span className="text-muted-foreground text-xs font-semibold print:text-gray-600">Location</span>
+              <span className="font-medium">{savedOrderDetails.location}</span>
             </div>
           </div>
-          
-          {savedOrderDetails.syncStatus === 'failed' && (
-            <div className="bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm p-3 rounded-md flex items-start gap-2 mb-6 w-full text-left">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span className="leading-snug">Order saved locally, but background spreadsheet sync failed. It will retry automatically.</span>
-            </div>
-          )}
 
-          <div className="w-full flex flex-col gap-3">
+          <div className="w-full overflow-x-auto mb-6 print:mb-4">
+            <table className="w-full text-sm print:text-xs">
+              <thead>
+                <tr className="border-b border-border print:border-gray-300">
+                  <th className="text-left py-2 px-1 font-semibold text-muted-foreground print:text-gray-600">Product</th>
+                  <th className="text-left py-2 px-1 font-semibold text-muted-foreground print:text-gray-600">Brand</th>
+                  <th className="text-center py-2 px-1 font-semibold text-muted-foreground print:text-gray-600">Pkg</th>
+                  <th className="text-right py-2 px-1 font-semibold text-muted-foreground print:text-gray-600">Qty</th>
+                  <th className="text-right py-2 px-1 font-semibold text-muted-foreground print:text-gray-600">Wt (Qtl)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {savedOrderDetails.items.map((item, idx) => (
+                  <tr key={idx} className="border-b border-border/50 print:border-gray-200">
+                    <td className="py-1.5 px-1 text-left font-medium">{item.productName}</td>
+                    <td className="py-1.5 px-1 text-left text-muted-foreground print:text-gray-600">{item.brandName}</td>
+                    <td className="py-1.5 px-1 text-center text-muted-foreground print:text-gray-600">{item.packagingWeightKg}kg</td>
+                    <td className="py-1.5 px-1 text-right font-medium tabular-nums">{item.quantity}</td>
+                    <td className="py-1.5 px-1 text-right font-medium tabular-nums">{item.weightQuintals.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border print:border-gray-800 font-bold">
+                  <td colSpan={3} className="py-2 px-1 text-left">Total</td>
+                  <td className="py-2 px-1 text-right tabular-nums">{savedOrderDetails.totalBags}</td>
+                  <td className="py-2 px-1 text-right tabular-nums">{savedOrderDetails.totalWeight.toFixed(2)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div className="w-full flex flex-col gap-3 print:hidden">
+            <Button onClick={() => window.print()} size="lg" className="w-full font-semibold">
+              <Printer className="h-4 w-4 mr-2" />
+              Print Order
+            </Button>
             <Button onClick={resetForm} size="lg" className="w-full font-semibold">
               <Plus className="h-4 w-4 mr-2" />
               Create Another Order
@@ -1161,11 +1181,11 @@ export function NewOrder() {
           {submitMessage && submitStatus !== 'idle' && (
             <div className={`text-sm p-3 rounded-md flex items-start gap-2 ${
               submitStatus === 'saved' ? 'bg-green-500/10 text-green-700 dark:text-green-400' :
-              (submitStatus === 'sync_error' || submitStatus === 'validation_error') ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' :
+              submitStatus === 'validation_error' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' :
               submitStatus === 'save_error' ? 'bg-destructive/10 text-destructive' :
               'bg-muted text-muted-foreground'
             }`}>
-              {(submitStatus === 'sync_error' || submitStatus === 'validation_error' || submitStatus === 'save_error') ? <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /> : 
+              {(submitStatus === 'validation_error' || submitStatus === 'save_error') ? <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /> : 
                submitStatus === 'saved' ? <Check className="h-4 w-4 mt-0.5 shrink-0" /> : null}
               <span className="leading-snug">{submitMessage}</span>
             </div>
@@ -1433,11 +1453,11 @@ export function NewOrder() {
           {submitMessage && submitStatus !== 'idle' && (
             <div className={`text-xs p-2.5 rounded-md flex items-start gap-2 ${
               submitStatus === 'saved' ? 'bg-green-500/10 text-green-700 dark:text-green-400' :
-              (submitStatus === 'sync_error' || submitStatus === 'validation_error') ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' :
+              submitStatus === 'validation_error' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' :
               submitStatus === 'save_error' ? 'bg-destructive/10 text-destructive' :
               'bg-muted text-muted-foreground'
             }`}>
-              {(submitStatus === 'sync_error' || submitStatus === 'validation_error' || submitStatus === 'save_error') ? <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : 
+              {(submitStatus === 'validation_error' || submitStatus === 'save_error') ? <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : 
                submitStatus === 'saved' ? <Check className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : null}
               <span className="leading-snug">{submitMessage}</span>
             </div>

@@ -137,6 +137,21 @@ body {
     --sidebar-ring: #FFD700;
 }
 
+@media print {
+  nav, aside, .sidebar, .no-print, button:not(.print\\:hidden):not(.print\\:flex),
+  [data-slot="sheet"], [data-slot="dialog"], .fixed, .sticky:not(.print\\:sticky) {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12px;
+  }
+  @page {
+    margin: 1.5cm;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -1,4 +1,13 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut as firebaseSignOut,
+  User as FirebaseUser,
+} from "firebase/auth";
+import { auth } from "./firebase";
 
 interface User {
   id: string;
@@ -8,31 +17,82 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string) => void;
-  logout: () => void;
+  loading: boolean;
+  error: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function mapFirebaseUser(firebaseUser: FirebaseUser): User {
+  return {
+    id: firebaseUser.uid,
+    name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "User",
+    email: firebaseUser.email || "",
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('mock_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const login = (email: string) => {
-    const newUser = { id: crypto.randomUUID(), name: email.split('@')[0], email };
-    setUser(newUser);
-    localStorage.setItem('mock_user', JSON.stringify(newUser));
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(mapFirebaseUser(firebaseUser));
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    setError(null);
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      setUser(mapFirebaseUser(result.user));
+    } catch (err: any) {
+      const message = err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential'
+        ? 'Invalid email or password.'
+        : err.code === 'auth/too-many-requests'
+        ? 'Too many attempts. Try again later.'
+        : err.code === 'auth/invalid-email'
+        ? 'Invalid email address.'
+        : 'Failed to sign in. Please try again.';
+      setError(message);
+      throw err;
+    }
   };
 
-  const logout = () => {
+  const loginWithGoogle = async () => {
+    setError(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      setUser(mapFirebaseUser(result.user));
+    } catch (err: any) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setError('Google sign-in failed. Please try again.');
+        throw err;
+      }
+    }
+  };
+
+  const logout = async () => {
+    await firebaseSignOut(auth);
     setUser(null);
-    localStorage.removeItem('mock_user');
   };
+
+  const clearError = () => setError(null);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, error, login, loginWithGoogle, logout, clearError }}>
       {children}
     </AuthContext.Provider>
   );
