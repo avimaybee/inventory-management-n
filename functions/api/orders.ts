@@ -1,35 +1,7 @@
 import { drizzle } from 'drizzle-orm/d1';
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 import { eq, desc } from 'drizzle-orm';
+import { orders, orderLineItems } from '../db/schema';
 import { verifyToken, extractToken, checkOrigin, checkRateLimit, SHEET_ID_REGEX } from '../utils/auth';
-
-const orders = sqliteTable('orders', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  date: text('date').notNull(),
-  partyName: text('party_name').notNull(),
-  location: text('location').notNull(),
-  status: text('status').notNull().default('pending'),
-  totalWeight: real('total_weight').notNull(),
-});
-
-const orderLineItems = sqliteTable('order_line_items', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  orderId: integer('order_id').notNull().references(() => orders.id),
-  brand: text('brand').notNull(),
-  category: text('category').notNull(),
-  feedType: text('feed_type').notNull(),
-  product: text('product').notNull(),
-  packaging: real('packaging').notNull(),
-  quantity: integer('quantity').notNull(),
-  weight: real('weight').notNull(),
-});
-
-function getDb(env: Record<string, any>) {
-  if (!env.DB) {
-    throw new Error('DB binding not configured');
-  }
-  return drizzle(env.DB);
-}
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -65,15 +37,18 @@ async function authenticate(request: Request) {
   }
 }
 
+function getDb(env: Record<string, any>) {
+  if (!env.DB) throw new Error('DB binding not configured');
+  return drizzle(env.DB);
+}
+
 export async function onRequestGet(context) {
   try {
     const user = await authenticate(context.request);
     if (!user) return unauthorized();
-
     if (!checkOrigin(context.request)) return json({ error: 'Forbidden' }, 403);
 
-    const rlKey = `get:${user.uid}`;
-    const rl = checkRateLimit(rlKey);
+    const rl = checkRateLimit(`get:${user.uid}`);
     if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
 
     const env = context.env;
@@ -98,11 +73,9 @@ export async function onRequestPost(context) {
   try {
     const user = await authenticate(context.request);
     if (!user) return unauthorized();
-
     if (!checkOrigin(context.request)) return json({ error: 'Forbidden' }, 403);
 
-    const rlKey = `post:${user.uid}`;
-    const rl = checkRateLimit(rlKey);
+    const rl = checkRateLimit(`post:${user.uid}`);
     if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
 
     const env = context.env;
@@ -139,47 +112,36 @@ export async function onRequestPost(context) {
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      if (typeof item.brandName !== 'string' || !item.brandName) {
+      if (typeof item.brandName !== 'string' || !item.brandName)
         return json({ error: `items[${i}].brandName is required` }, 400);
-      }
-      if (typeof item.categoryName !== 'string' || !item.categoryName) {
+      if (typeof item.categoryName !== 'string' || !item.categoryName)
         return json({ error: `items[${i}].categoryName is required` }, 400);
-      }
-      if (typeof item.feedTypeName !== 'string' || !item.feedTypeName) {
+      if (typeof item.feedTypeName !== 'string' || !item.feedTypeName)
         return json({ error: `items[${i}].feedTypeName is required` }, 400);
-      }
-      if (typeof item.productName !== 'string' || !item.productName) {
+      if (typeof item.productName !== 'string' || !item.productName)
         return json({ error: `items[${i}].productName is required` }, 400);
-      }
-      if (typeof item.packagingWeightKg !== 'number' || item.packagingWeightKg <= 0) {
+      if (typeof item.packagingWeightKg !== 'number' || item.packagingWeightKg <= 0)
         return json({ error: `items[${i}].packagingWeightKg must be a positive number` }, 400);
-      }
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 100000) {
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 100000)
         return json({ error: `items[${i}].quantity must be an integer between 1 and 100000` }, 400);
-      }
-      if (typeof item.weightQuintals !== 'number' || item.weightQuintals <= 0 || item.weightQuintals > 100000) {
+      if (typeof item.weightQuintals !== 'number' || item.weightQuintals <= 0 || item.weightQuintals > 100000)
         return json({ error: `items[${i}].weightQuintals must be a positive number (max 100000)` }, 400);
-      }
     }
 
-    const totalWeight = items.reduce((sum: number, item: any) => sum + item.weightQuintals, 0);
     const db = getDb(env);
 
-    const newOrder = await db
-      .insert(orders)
-      .values({
-        date: new Date().toISOString(),
-        partyName,
-        location,
-        totalWeight,
-        status: 'pending',
-      })
-      .returning();
+    const [newOrder] = await db.insert(orders).values({
+      date: new Date().toISOString(),
+      partyName,
+      location,
+      totalWeight: items.reduce((sum: number, item: any) => sum + item.weightQuintals, 0),
+      status: 'pending',
+    }).returning();
 
-    const orderId = newOrder[0].id;
+    const orderId = newOrder.id;
 
-    for (const item of items) {
-      await db.insert(orderLineItems).values({
+    await Promise.all(items.map((item: any) =>
+      db.insert(orderLineItems).values({
         orderId,
         brand: item.brandName,
         category: item.categoryName,
@@ -188,15 +150,15 @@ export async function onRequestPost(context) {
         packaging: item.packagingWeightKg,
         quantity: item.quantity,
         weight: item.weightQuintals,
-      });
-    }
+      })
+    ));
 
     if (env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY && env.SPREADSHEET_ID) {
       if (!SHEET_ID_REGEX.test(env.SPREADSHEET_ID)) {
         console.error('Invalid SPREADSHEET_ID format');
       } else {
         try {
-          await syncToGoogleSheets(newOrder[0], items, env, db);
+          await syncToGoogleSheets(newOrder, items, env, db);
         } catch (err) {
           console.error('Google Sheets sync failed', err);
         }
@@ -236,7 +198,17 @@ async function syncToGoogleSheets(order: any, items: any[], env: Record<string, 
     }),
   });
 
+  if (!tokenRes.ok) {
+    console.error('Google OAuth token exchange failed', await tokenRes.text());
+    return;
+  }
+
   const tokenData = await tokenRes.json();
+
+  if (!tokenData.access_token) {
+    console.error('Google OAuth response missing access_token', tokenData);
+    return;
+  }
 
   const values = items.map((item: any) => [
     order.id,

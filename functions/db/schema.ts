@@ -1,19 +1,16 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
-
-export const users = sqliteTable('users', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  email: text('email').notNull().unique(),
-  name: text('name').notNull(),
-});
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
 
 export const orders = sqliteTable('orders', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   date: text('date').notNull(),
   partyName: text('party_name').notNull(),
   location: text('location').notNull(),
-  status: text('status').notNull().default('pending'), // pending, synced
-  totalWeight: real('total_weight').notNull(), // in quintals
-});
+  status: text('status').notNull().default('pending'),
+  totalWeight: real('total_weight').notNull(),
+}, (table) => ({
+  dateIdx: index('orders_date_idx').on(table.date),
+  partyNameIdx: index('orders_party_name_idx').on(table.partyName),
+}));
 
 export const orderLineItems = sqliteTable('order_line_items', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -22,7 +19,9 @@ export const orderLineItems = sqliteTable('order_line_items', {
   category: text('category').notNull(),
   feedType: text('feed_type').notNull(),
   product: text('product').notNull(),
-  packaging: real('packaging').notNull(), // in kg
-  quantity: integer('quantity').notNull(), // number of bags
-  weight: real('weight').notNull(), // in quintals
-});
+  packaging: real('packaging').notNull(),
+  quantity: integer('quantity').notNull(),
+  weight: real('weight').notNull(),
+}, (table) => ({
+  orderIdIdx: index('items_order_id_idx').on(table.orderId),
+}));
