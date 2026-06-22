@@ -152,7 +152,7 @@ function AutocompleteInput({
           }
         }}
         placeholder={placeholder}
-        className={`w-full pr-8 bg-card border-input focus-visible:ring-ring ${ariaInvalid ? "border-destructive focus-visible:ring-destructive" : ""}`}
+        className={`w-full pr-8 bg-card border-input focus-visible:ring-ring h-9 ${ariaInvalid ? "border-destructive focus-visible:ring-destructive" : ""}`}
       />
       <Button
         type="button"
@@ -1476,7 +1476,7 @@ export function NewOrder() {
                 transition={{ duration: 0.2 }}
                 className="space-y-6"
               >
-                <Card className="border-border bg-card shadow-sm">
+                <Card className="border-border bg-card shadow-sm overflow-visible">
                   <CardHeader>
                     <CardTitle className="text-lg font-bold text-foreground">Party Details</CardTitle>
                     <CardDescription>Select or enter the client business name and location.</CardDescription>
@@ -1600,7 +1600,7 @@ export function NewOrder() {
                       <div className="space-y-1.5">
                         <Label id="label-brand" className="text-xs font-semibold">Brand</Label>
                         <Select value={selectedBrandId} onValueChange={handleBrandChange}>
-                          <SelectTrigger aria-labelledby="label-brand" className="bg-card border-border"><SelectValue placeholder="Select brand">{availableBrands.find(b => b.id === selectedBrandId)?.name}</SelectValue></SelectTrigger>
+                          <SelectTrigger aria-labelledby="label-brand" className="bg-card border-border h-9"><SelectValue placeholder="Select brand">{availableBrands.find(b => b.id === selectedBrandId)?.name}</SelectValue></SelectTrigger>
                           <SelectContent>
                             {availableBrands.map(b => (
                               <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
@@ -1612,7 +1612,7 @@ export function NewOrder() {
                       <div className="space-y-1.5">
                         <Label id="label-category" className="text-xs font-semibold">Category</Label>
                         <Select value={selectedCategoryId} onValueChange={handleCategoryChange} disabled={!selectedBrandId}>
-                          <SelectTrigger aria-labelledby="label-category" className="bg-card border-border"><SelectValue placeholder={!selectedBrandId ? "Select brand first" : "Select category"}>{availableCategories.find(c => c.id === selectedCategoryId)?.name}</SelectValue></SelectTrigger>
+                          <SelectTrigger aria-labelledby="label-category" className="bg-card border-border h-9"><SelectValue placeholder={!selectedBrandId ? "Select brand first" : "Select category"}>{availableCategories.find(c => c.id === selectedCategoryId)?.name}</SelectValue></SelectTrigger>
                           <SelectContent>
                             {availableCategories.map(c => (
                               <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
@@ -1624,7 +1624,7 @@ export function NewOrder() {
                       <div className="space-y-1.5">
                         <Label id="label-feed-type" className="text-xs font-semibold">Feed Type</Label>
                         <Select value={selectedFeedTypeId} onValueChange={handleFeedTypeChange} disabled={!selectedCategoryId}>
-                          <SelectTrigger aria-labelledby="label-feed-type" className="bg-card border-border"><SelectValue placeholder={!selectedCategoryId ? "Select category first" : "Select feed type"}>{availableFeedTypes.find(ft => ft.id === selectedFeedTypeId)?.name}</SelectValue></SelectTrigger>
+                          <SelectTrigger aria-labelledby="label-feed-type" className="bg-card border-border h-9"><SelectValue placeholder={!selectedCategoryId ? "Select category first" : "Select feed type"}>{availableFeedTypes.find(ft => ft.id === selectedFeedTypeId)?.name}</SelectValue></SelectTrigger>
                           <SelectContent>
                             {availableFeedTypes.map(ft => (
                               <SelectItem key={ft.id} value={ft.id}>{ft.name}</SelectItem>
@@ -1638,7 +1638,7 @@ export function NewOrder() {
                       <div className="space-y-1.5 md:col-span-5">
                         <Label id="label-product" className="text-xs font-semibold">Product</Label>
                         <Select value={selectedProductId} onValueChange={handleProductChange} disabled={!selectedFeedTypeId}>
-                          <SelectTrigger aria-labelledby="label-product" className="bg-card border-border"><SelectValue placeholder={!selectedFeedTypeId ? "Select feed type first" : "Select product"}>{availableProducts.find(p => p.id === selectedProductId)?.name}</SelectValue></SelectTrigger>
+                          <SelectTrigger aria-labelledby="label-product" className="bg-card border-border h-9"><SelectValue placeholder={!selectedFeedTypeId ? "Select feed type first" : "Select product"}>{availableProducts.find(p => p.id === selectedProductId)?.name}</SelectValue></SelectTrigger>
                           <SelectContent>
                             {availableProducts.map(p => (
                               <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -1652,7 +1652,7 @@ export function NewOrder() {
                         <Select value={selectedPackagingId} onValueChange={(val) => {
                           setSelectedPackagingId(val);
                         }} disabled={!selectedProductId}>
-                          <SelectTrigger id="packaging-trigger" aria-labelledby="label-packaging" className="bg-card border-border"><SelectValue placeholder={!selectedProductId ? "Select product first" : "Select packaging"}>{availablePackaging.find(pkg => pkg.id === selectedPackagingId)?.name}</SelectValue></SelectTrigger>
+                          <SelectTrigger id="packaging-trigger" aria-labelledby="label-packaging" className="bg-card border-border h-9"><SelectValue placeholder={!selectedProductId ? "Select product first" : "Select packaging"}>{availablePackaging.find(pkg => pkg.id === selectedPackagingId)?.name}</SelectValue></SelectTrigger>
                           <SelectContent>
                             {availablePackaging.map(pkg => (
                               <SelectItem key={pkg.id} value={pkg.id}>{pkg.name}</SelectItem>
@@ -1671,7 +1671,7 @@ export function NewOrder() {
                           pattern="[0-9]*"
                           placeholder=""
                           aria-invalid={!!quantityError}
-                          className="bg-card border-border text-right font-medium tabular-nums focus-visible:ring-ring"
+                          className="bg-card border-border text-right font-medium tabular-nums focus-visible:ring-ring h-9"
                           value={quantity}
                           onChange={e => setQuantity(e.target.value.replace(/[^0-9]/g, ''))}
                           disabled={!selectedProductId || !selectedPackagingId}
@@ -1681,7 +1681,7 @@ export function NewOrder() {
                         )}
                       </div>
 
-                      <div className="md:col-span-2 text-right py-2 px-1 text-xs text-muted-foreground font-semibold tabular-nums">
+                      <div className="md:col-span-2 text-right h-9 flex items-center justify-end px-1 text-xs text-muted-foreground font-semibold tabular-nums">
                         {derivedKg > 0 ? `${derivedKg} kg / ${derivedQuintals} Qtl` : '0 kg'}
                       </div>
                     </div>
@@ -1715,7 +1715,7 @@ export function NewOrder() {
                           id="rate-input"
                           type="text"
                           placeholder="0.00"
-                          className="bg-card border-border text-right font-medium tabular-nums focus-visible:ring-ring"
+                          className="bg-card border-border text-right font-medium tabular-nums focus-visible:ring-ring h-9"
                           value={enteredRate}
                           onChange={e => setEnteredRate(e.target.value.replace(/[^0-9.]/g, ''))}
                           disabled={!selectedProductId}
