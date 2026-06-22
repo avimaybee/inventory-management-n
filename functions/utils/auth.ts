@@ -1,7 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const FIREBASE_PROJECT_ID = 'neelamfeeds-inv';
-const FIREBASE_PROJECT_NUMBER = '752517322012';
 const JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 
 const jwks = createRemoteJWKSet(new URL(JWKS_URL));
@@ -9,7 +8,7 @@ const jwks = createRemoteJWKSet(new URL(JWKS_URL));
 export async function verifyToken(token: string): Promise<{ uid: string; email: string | null }> {
   const { payload } = await jwtVerify(token, jwks, {
     issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
-    audience: FIREBASE_PROJECT_NUMBER,
+    audience: FIREBASE_PROJECT_ID,
   });
   return {
     uid: payload.sub as string,

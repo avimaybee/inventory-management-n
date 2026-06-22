@@ -1,8 +1,15 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { NewOrder } from './NewOrder';
+
+vi.mock('@/src/lib/auth', () => ({
+  useAuth: () => ({
+    user: { email: 'sales@neelamfeeds.in', name: 'Sales Department' },
+    getToken: async () => 'mock-token',
+  })
+}));
 
 // Polyfill pointer-events mostly used by Radix UI (shadcn Select components)
 beforeAll(() => {

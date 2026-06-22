@@ -12,8 +12,8 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply neelam-feeds-db --local",
-    "db:migrate": "wrangler d1 migrations apply neelam-feeds-db --remote"
+    "db:migrate:local": "wrangler d1 migrations apply neelamfeedsinv --local",
+    "db:migrate": "wrangler d1 migrations apply neelamfeedsinv --remote"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

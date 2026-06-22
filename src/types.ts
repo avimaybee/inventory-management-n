@@ -13,6 +13,10 @@ export interface OrderItem {
   packagingWeightKg: number;
   quantity: number;
   weightQuintals: number;
+  pricingBasis?: 'per_bag' | 'per_quintal';
+  enteredRate?: number;
+  calculatedBagRate?: number;
+  calculatedLineValue?: number;
   _invalid?: boolean;
   _invalidReason?: string;
 }

@@ -1,0 +1,9 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "neelam-feeds"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "neelamfeedsinv"
+database_id = "fe74d938-fe95-4405-8f05-c6d681ff0ec4"
+migrations_dir = "drizzle"

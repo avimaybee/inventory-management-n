@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, desc } from 'drizzle-orm';
-import { orders, orderLineItems } from '../db/schema';
+import { eq, desc, and } from 'drizzle-orm';
+import { orders, orderLineItems, orderAuditLogs } from '../db/schema';
 import { verifyToken, extractToken, checkOrigin, checkRateLimit, SHEET_ID_REGEX } from '../utils/auth';
 
 function json(data: unknown, status = 200) {
@@ -42,6 +42,59 @@ function getDb(env: Record<string, any>) {
   return drizzle(env.DB);
 }
 
+// Recalculates packaging weights, bag rates, and line values to ensure mathematical consistency
+function calculateRatesAndValues(items: any[]) {
+  let totalWeight = 0;
+  let totalValue = 0;
+
+  const processedItems = items.map((item: any) => {
+    const brand = item.brand || item.brandName;
+    const category = item.category || item.categoryName;
+    const feedType = item.feedType || item.feedTypeName;
+    const product = item.product || item.productName;
+    const packaging = Number(item.packaging || item.packagingWeightKg || 50);
+    const quantity = Number(item.quantity || 0);
+    const pricingBasis = item.pricingBasis || 'per_bag';
+    const enteredRate = Number(item.enteredRate || 0);
+
+    // Weight in quintals = (packaging_in_kg * quantity) / 100
+    const weight = (packaging * quantity) / 100;
+    totalWeight += weight;
+
+    let calculatedBagRate = 0;
+    if (pricingBasis === 'per_bag') {
+      calculatedBagRate = enteredRate;
+    } else {
+      // per_quintal: rate per bag = enteredRate * (packaging / 100)
+      calculatedBagRate = enteredRate * (packaging / 100);
+    }
+
+    const calculatedLineValue = calculatedBagRate * quantity;
+    totalValue += calculatedLineValue;
+
+    return {
+      brand,
+      category,
+      feedType,
+      product,
+      packaging,
+      quantity,
+      weight,
+      pricingBasis,
+      enteredRate,
+      calculatedBagRate,
+      calculatedLineValue,
+    };
+  });
+
+  return {
+    processedItems,
+    totalWeight,
+    totalValue,
+  };
+}
+
+// GET all orders
 export async function onRequestGet(context) {
   try {
     const user = await authenticate(context.request);
@@ -52,23 +105,41 @@ export async function onRequestGet(context) {
     if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
 
     const env = context.env;
-    if (!env.DB) return json({ error: 'Service unavailable' }, 500);
+    const db = getDb(env);
 
-    const db = drizzle(env.DB);
-    const allOrders = await db.select().from(orders).orderBy(desc(orders.date));
+    const isAdmin = user.email === 'info@neelamfeeds.in';
+    const isSales = !!(user.email && user.email !== 'info@neelamfeeds.in');
+
+    if (!isAdmin && !isSales) {
+      return unauthorized('Access denied. Invalid user role.');
+    }
+
+    let allOrders;
+    if (isAdmin) {
+      // Admin sees everything
+      allOrders = await db.select().from(orders).orderBy(desc(orders.date));
+    } else {
+      // Sales sees only active (non-archived) orders
+      allOrders = await db.select().from(orders).where(eq(orders.isArchived, 0)).orderBy(desc(orders.date));
+    }
+
     const allItems = await db.select().from(orderLineItems);
+    const allLogs = isAdmin ? await db.select().from(orderAuditLogs).orderBy(desc(orderAuditLogs.timestamp)) : [];
 
     const ordersWithItems = allOrders.map(o => ({
       ...o,
       items: allItems.filter(i => i.orderId === o.id),
+      auditLogs: isAdmin ? allLogs.filter(l => l.orderId === o.id) : undefined,
     }));
 
     return json(ordersWithItems);
-  } catch {
-    return json({ error: 'Internal error' }, 500);
+  } catch (err: any) {
+    console.error(err);
+    return json({ error: err.message || 'Internal error' }, 500);
   }
 }
 
+// POST: Create a new order (usually 'draft' or 'submitted')
 export async function onRequestPost(context) {
   try {
     const user = await authenticate(context.request);
@@ -79,100 +150,328 @@ export async function onRequestPost(context) {
     if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
 
     const env = context.env;
-    if (!env.DB) return json({ error: 'Service unavailable' }, 500);
+    const db = getDb(env);
+
+    const isAdmin = user.email === 'info@neelamfeeds.in';
+    const isSales = !!(user.email && user.email !== 'info@neelamfeeds.in');
+
+    if (!isAdmin && !isSales) {
+      return unauthorized('Access denied. Invalid user role.');
+    }
 
     const contentType = context.request.headers.get('Content-Type') || '';
     if (!contentType.startsWith('application/json')) {
       return json({ error: 'Content-Type must be application/json' }, 415);
     }
 
-    const contentLength = parseInt(context.request.headers.get('Content-Length') || '0', 10);
-    if (contentLength > 1_048_576) {
-      return json({ error: 'Request body too large' }, 413);
+    const body: any = await context.request.json();
+    const { partyName, location, items, status } = body;
+
+    // Validation
+    if (typeof partyName !== 'string' || partyName.trim().length === 0 || partyName.length > 200) {
+      return json({ error: 'Party Name must be a non-empty string (max 200)' }, 400);
+    }
+    if (typeof location !== 'string' || location.trim().length === 0 || location.length > 200) {
+      return json({ error: 'Location must be a non-empty string (max 200)' }, 400);
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return json({ error: 'Order must contain at least one line item' }, 400);
     }
 
-    let body: any;
-    try {
-      body = await context.request.json();
-    } catch {
-      return json({ error: 'Invalid JSON body' }, 400);
+    // Determine initial status
+    let initialStatus = status || 'draft';
+    if (isSales && initialStatus !== 'draft' && initialStatus !== 'submitted') {
+      initialStatus = 'draft';
     }
 
-    const { partyName, location, items } = body;
-
-    if (typeof partyName !== 'string' || partyName.length === 0 || partyName.length > 200) {
-      return json({ error: 'partyName must be a non-empty string (max 200)' }, 400);
-    }
-    if (typeof location !== 'string' || location.length === 0 || location.length > 200) {
-      return json({ error: 'location must be a non-empty string (max 200)' }, 400);
-    }
-    if (!Array.isArray(items) || items.length === 0 || items.length > 200) {
-      return json({ error: 'items must be a non-empty array (max 200)' }, 400);
-    }
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (typeof item.brandName !== 'string' || !item.brandName)
-        return json({ error: `items[${i}].brandName is required` }, 400);
-      if (typeof item.categoryName !== 'string' || !item.categoryName)
-        return json({ error: `items[${i}].categoryName is required` }, 400);
-      if (typeof item.feedTypeName !== 'string' || !item.feedTypeName)
-        return json({ error: `items[${i}].feedTypeName is required` }, 400);
-      if (typeof item.productName !== 'string' || !item.productName)
-        return json({ error: `items[${i}].productName is required` }, 400);
-      if (typeof item.packagingWeightKg !== 'number' || item.packagingWeightKg <= 0)
-        return json({ error: `items[${i}].packagingWeightKg must be a positive number` }, 400);
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 100000)
-        return json({ error: `items[${i}].quantity must be an integer between 1 and 100000` }, 400);
-      if (typeof item.weightQuintals !== 'number' || item.weightQuintals <= 0 || item.weightQuintals > 100000)
-        return json({ error: `items[${i}].weightQuintals must be a positive number (max 100000)` }, 400);
-    }
-
-    const db = getDb(env);
+    // Process and calculate rates
+    const { processedItems, totalWeight, totalValue } = calculateRatesAndValues(items);
 
     const [newOrder] = await db.insert(orders).values({
       date: new Date().toISOString(),
-      partyName,
-      location,
-      totalWeight: items.reduce((sum: number, item: any) => sum + item.weightQuintals, 0),
-      status: 'pending',
+      partyName: partyName.trim(),
+      location: location.trim(),
+      totalWeight,
+      totalValue,
+      status: initialStatus,
+      createdBy: user.email,
+      isArchived: 0,
     }).returning();
 
     const orderId = newOrder.id;
 
-    await Promise.all(items.map((item: any) =>
+    // Insert items
+    await Promise.all(processedItems.map((item) =>
       db.insert(orderLineItems).values({
         orderId,
-        brand: item.brandName,
-        category: item.categoryName,
-        feedType: item.feedTypeName,
-        product: item.productName,
-        packaging: item.packagingWeightKg,
+        brand: item.brand,
+        category: item.category,
+        feedType: item.feedType,
+        product: item.product,
+        packaging: item.packaging,
         quantity: item.quantity,
-        weight: item.weightQuintals,
+        weight: item.weight,
+        pricingBasis: item.pricingBasis,
+        enteredRate: item.enteredRate,
+        calculatedBagRate: item.calculatedBagRate,
+        calculatedLineValue: item.calculatedLineValue,
       })
     ));
 
-    if (env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY && env.SPREADSHEET_ID) {
-      if (!SHEET_ID_REGEX.test(env.SPREADSHEET_ID)) {
-        console.error('Invalid SPREADSHEET_ID format');
-      } else {
-        try {
-          await syncToGoogleSheets(newOrder, items, env, db);
-        } catch (err) {
-          console.error('Google Sheets sync failed', err);
+    // Audit log
+    await db.insert(orderAuditLogs).values({
+      orderId,
+      userEmail: user.email!,
+      action: 'CREATED',
+      timestamp: new Date().toISOString(),
+      details: JSON.stringify({ status: initialStatus }),
+    });
+
+    return json({ success: true, orderId, order: { ...newOrder, items: processedItems } });
+  } catch (err: any) {
+    console.error(err);
+    return json({ error: err.message || 'Internal error' }, 500);
+  }
+}
+
+// PUT: Modify an existing order or perform status transition
+export async function onRequestPut(context) {
+  try {
+    const user = await authenticate(context.request);
+    if (!user) return unauthorized();
+    if (!checkOrigin(context.request)) return json({ error: 'Forbidden' }, 403);
+
+    const rl = checkRateLimit(`put:${user.uid}`);
+    if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
+
+    const env = context.env;
+    const db = getDb(env);
+
+    const isAdmin = user.email === 'info@neelamfeeds.in';
+    const isSales = !!(user.email && user.email !== 'info@neelamfeeds.in');
+
+    if (!isAdmin && !isSales) {
+      return unauthorized('Access denied. Invalid user role.');
+    }
+
+    const body: any = await context.request.json();
+    const { id, partyName, location, items, status, rejectionReason, adminRemarks, isArchived } = body;
+
+    if (!id) return json({ error: 'Order ID is required' }, 400);
+
+    const [existingOrder] = await db.select().from(orders).where(eq(orders.id, id));
+    if (!existingOrder) return json({ error: 'Order not found' }, 404);
+
+    // Permission check for Sales
+    if (isSales) {
+      if (existingOrder.isArchived === 1) {
+        return json({ error: 'Cannot modify archived order' }, 403);
+      }
+      if (existingOrder.status !== 'draft' && existingOrder.status !== 'clarification_needed') {
+        return json({ error: 'Order is locked and cannot be modified' }, 403);
+      }
+      if (status && status !== 'draft' && status !== 'submitted') {
+        return json({ error: 'Invalid status transition' }, 403);
+      }
+    }
+
+    // Process variables
+    let updateData: any = {};
+    let auditLogAction = 'UPDATED';
+    let auditLogDetails: any = {};
+
+    // Handle soft-delete request
+    if (isArchived === 1 || isArchived === true) {
+      updateData.isArchived = 1;
+      await db.update(orders).set(updateData).where(eq(orders.id, id));
+      await db.insert(orderAuditLogs).values({
+        orderId: id,
+        userEmail: user.email!,
+        action: 'DELETED',
+        timestamp: new Date().toISOString(),
+        details: JSON.stringify({ previousStatus: existingOrder.status }),
+      });
+      return json({ success: true, message: 'Order soft deleted' });
+    }
+
+    // If updating details/items
+    let finalItems = items;
+    if (items || partyName || location) {
+      if (partyName) updateData.partyName = partyName.trim();
+      if (location) updateData.location = location.trim();
+
+      if (items) {
+        const { processedItems, totalWeight, totalValue } = calculateRatesAndValues(items);
+        updateData.totalWeight = totalWeight;
+        updateData.totalValue = totalValue;
+        finalItems = processedItems;
+
+        // Verify if rates were changed by Admin
+        if (isAdmin) {
+          const originalItems = await db.select().from(orderLineItems).where(eq(orderLineItems.orderId, id));
+          let pricingChanged = false;
+          for (const item of processedItems) {
+            const orig = originalItems.find(o => o.product === item.product);
+            if (orig && (orig.enteredRate !== item.enteredRate || orig.pricingBasis !== item.pricingBasis)) {
+              pricingChanged = true;
+              break;
+            }
+          }
+          if (pricingChanged) {
+            auditLogAction = 'PRICE_MODIFIED';
+          }
         }
       }
     }
 
-    return json({ success: true, orderId });
-  } catch (err) {
+    // Handle status changes
+    if (status && status !== existingOrder.status) {
+      updateData.status = status;
+      auditLogAction = 'STATUS_CHANGE';
+      auditLogDetails.from = existingOrder.status;
+      auditLogDetails.to = status;
+
+      if (status === 'rejected') {
+        if (!rejectionReason) return json({ error: 'Rejection reason is required' }, 400);
+        updateData.rejectionReason = rejectionReason;
+        auditLogDetails.rejectionReason = rejectionReason;
+      }
+      if (status === 'clarification_needed') {
+        if (!adminRemarks) return json({ error: 'Remarks are required for seeking clarification' }, 400);
+        updateData.adminRemarks = adminRemarks;
+        auditLogDetails.adminRemarks = adminRemarks;
+      }
+      if (status === 'approved') {
+        updateData.adminRemarks = adminRemarks || null;
+        updateData.rejectionReason = null;
+      }
+    }
+
+    // Apply database updates for order header
+    await db.update(orders).set(updateData).where(eq(orders.id, id));
+
+    // Apply updates for line items if provided
+    if (items) {
+      await db.delete(orderLineItems).where(eq(orderLineItems.orderId, id));
+      await Promise.all(finalItems.map((item: any) =>
+        db.insert(orderLineItems).values({
+          orderId: id,
+          brand: item.brand,
+          category: item.category,
+          feedType: item.feedType,
+          product: item.product,
+          packaging: item.packaging,
+          quantity: item.quantity,
+          weight: item.weight,
+          pricingBasis: item.pricingBasis,
+          enteredRate: item.enteredRate,
+          calculatedBagRate: item.calculatedBagRate,
+          calculatedLineValue: item.calculatedLineValue,
+        })
+      ));
+    }
+
+    // If status transitioned to APPROVED, generate snapshot & sync to Google Sheets
+    if (status === 'approved' && existingOrder.status !== 'approved') {
+      const [updatedOrder] = await db.select().from(orders).where(eq(orders.id, id));
+      const updatedItems = await db.select().from(orderLineItems).where(eq(orderLineItems.orderId, id));
+      
+      const frozenSnapshot = {
+        order: updatedOrder,
+        items: updatedItems,
+        approvedAt: new Date().toISOString(),
+        approvedBy: user.email,
+      };
+
+      // Save frozen snapshot
+      await db.update(orders).set({
+        snapshot: JSON.stringify(frozenSnapshot)
+      }).where(eq(orders.id, id));
+
+      // Trigger Google Sheets Sync
+      if (env.GOOGLE_SERVICE_ACCOUNT_EMAIL && env.GOOGLE_PRIVATE_KEY && env.SPREADSHEET_ID) {
+        if (SHEET_ID_REGEX.test(env.SPREADSHEET_ID)) {
+          try {
+            await syncToGoogleSheets({ ...updatedOrder, totalWeight: updatedOrder.totalWeight }, updatedItems, env);
+          } catch (err) {
+            console.error('Google Sheets sync failed during approval:', err);
+          }
+        }
+      }
+    }
+
+    // Save audit log
+    await db.insert(orderAuditLogs).values({
+      orderId: id,
+      userEmail: user.email!,
+      action: auditLogAction,
+      timestamp: new Date().toISOString(),
+      details: Object.keys(auditLogDetails).length > 0 ? JSON.stringify(auditLogDetails) : null,
+    });
+
+    return json({ success: true });
+  } catch (err: any) {
     console.error(err);
-    return json({ error: 'Internal error' }, 500);
+    return json({ error: err.message || 'Internal error' }, 500);
   }
 }
 
-async function syncToGoogleSheets(order: any, items: any[], env: Record<string, any>, db: any) {
+// DELETE: Alternate way to soft delete order (usually for drafts)
+export async function onRequestDelete(context) {
+  try {
+    const user = await authenticate(context.request);
+    if (!user) return unauthorized();
+    if (!checkOrigin(context.request)) return json({ error: 'Forbidden' }, 403);
+
+    const rl = checkRateLimit(`delete:${user.uid}`);
+    if (!rl.allowed) return tooManyRequests(rl.retryAfter!);
+
+    const env = context.env;
+    const db = getDb(env);
+
+    const isAdmin = user.email === 'info@neelamfeeds.in';
+    const isSales = !!(user.email && user.email !== 'info@neelamfeeds.in');
+
+    if (!isAdmin && !isSales) {
+      return unauthorized('Access denied. Invalid user role.');
+    }
+
+    const url = new URL(context.request.url);
+    const idStr = url.searchParams.get('id');
+    if (!idStr) return json({ error: 'Order ID is required' }, 400);
+    const id = parseInt(idStr, 10);
+
+    const [existingOrder] = await db.select().from(orders).where(eq(orders.id, id));
+    if (!existingOrder) return json({ error: 'Order not found' }, 404);
+
+    if (isSales) {
+      if (existingOrder.isArchived === 1) return json({ error: 'Order is already deleted' }, 400);
+      if (existingOrder.status !== 'draft') {
+        return json({ error: 'Only drafts can be deleted by Sales' }, 403);
+      }
+    }
+
+    // Soft delete
+    await db.update(orders).set({ isArchived: 1 }).where(eq(orders.id, id));
+
+    // Audit log
+    await db.insert(orderAuditLogs).values({
+      orderId: id,
+      userEmail: user.email!,
+      action: 'DELETED',
+      timestamp: new Date().toISOString(),
+      details: JSON.stringify({ previousStatus: existingOrder.status }),
+    });
+
+    return json({ success: true, message: 'Order soft deleted' });
+  } catch (err: any) {
+    console.error(err);
+    return json({ error: err.message || 'Internal error' }, 500);
+  }
+}
+
+// Helper to sync order data to Google Sheets
+async function syncToGoogleSheets(order: any, items: any[], env: Record<string, any>) {
   const { importPKCS8, SignJWT } = await import('jose');
 
   const pkcs8 = env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
@@ -199,34 +498,39 @@ async function syncToGoogleSheets(order: any, items: any[], env: Record<string, 
   });
 
   if (!tokenRes.ok) {
-    console.error('Google OAuth token exchange failed', await tokenRes.text());
+    console.error('Google OAuth token exchange failed in approval sync', await tokenRes.text());
     return;
   }
 
   const tokenData = await tokenRes.json();
-
   if (!tokenData.access_token) {
-    console.error('Google OAuth response missing access_token', tokenData);
+    console.error('Google OAuth missing access_token in approval sync', tokenData);
     return;
   }
 
+  // Row columns: Order ID, Date, Location, Party Name, Brand, Category, Feed Type, Product, Packaging, Quantity, Weight (Quintals), Total Weight, Pricing Basis, Rate, Calculated Bag Rate, Total Value
   const values = items.map((item: any) => [
     order.id,
     order.date,
     order.location,
     order.partyName,
-    item.brandName,
-    item.categoryName,
-    item.feedTypeName,
-    item.productName,
-    item.packagingWeightKg,
+    item.brand,
+    item.category,
+    item.feedType,
+    item.product,
+    item.packaging,
     item.quantity,
-    item.weightQuintals,
+    item.weight,
     order.totalWeight,
+    item.pricingBasis,
+    item.enteredRate,
+    item.calculatedBagRate,
+    item.calculatedLineValue,
+    order.totalValue,
   ]);
 
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${env.SPREADSHEET_ID}/values/Sheet1!A:L:append?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${env.SPREADSHEET_ID}/values/Sheet1!A:Q:append?valueInputOption=USER_ENTERED`,
     {
       method: 'POST',
       headers: {
@@ -238,8 +542,6 @@ async function syncToGoogleSheets(order: any, items: any[], env: Record<string, 
   );
 
   if (!res.ok) {
-    throw new Error(`Google Sheets API error: ${res.status}`);
+    throw new Error(`Google Sheets API error: ${res.status} - ${await res.text()}`);
   }
-
-  await db.update(orders).set({ status: 'synced' }).where(eq(orders.id, order.id));
 }
