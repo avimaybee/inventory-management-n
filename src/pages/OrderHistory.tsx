@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { format } from "date-fns";
 import { Routes, Route, useNavigate, useParams, Link, useSearchParams } from "react-router";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { 
   Search, Loader2, ArrowUpDown, ArrowUp, ArrowDown, FileText, PackageOpen, 
   ExternalLink, ChevronLeft, Plus, X, ServerCrash, RotateCcw, Copy, Printer, 
-  CheckCircle2, AlertTriangle, HelpCircle, Hourglass, Edit3, Save, History, ClipboardList, Trash2, AlertCircle
+  CheckCircle2, AlertTriangle, HelpCircle, Hourglass, Edit3, Save, History, ClipboardList, Trash2, AlertCircle, Archive
 } from "lucide-react";
 import { PRODUCTS, PACKAGING, BRANDS, CATEGORIES, FEED_TYPES } from "@/src/lib/catalog";
 import { OrderItem } from "@/src/types";
@@ -117,10 +117,9 @@ export function OrderHistory() {
   useEffect(() => {
     fetchOrders();
     
-    // 8-second polling interval for real-time visibility
     const timer = setInterval(() => {
       fetchOrders(true);
-    }, 8000);
+    }, 3000);
     return () => clearInterval(timer);
   }, []);
 
@@ -150,8 +149,6 @@ export function OrderHistory() {
       </div>
       <Routes>
         <Route index element={<PartyList orders={orders} loading={loading} error={error} onRetry={() => fetchOrders()} />} />
-        <Route path=":partyName" element={<PartyOrderList orders={orders} loading={loading} error={error} onRetry={() => fetchOrders()} />} />
-        <Route path=":partyName/:orderId" element={<OrderDetail orders={orders} loading={loading} error={error} onRetry={() => fetchOrders()} />} />
       </Routes>
     </>
   );
@@ -222,6 +219,21 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
     });
   }, [orders, archivedOrders, activeTab, searchQuery]);
 
+  // Highlight newly appeared orders with animation
+  const prevAdminIdsRef = useRef<Set<number>>(new Set());
+  const [adminHighlightedIds, setAdminHighlightedIds] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set(filteredOrders.map(o => o.id));
+    const newIds = new Set([...currentIds].filter(id => !prevAdminIdsRef.current.has(id)));
+    if (newIds.size > 0) {
+      setAdminHighlightedIds(newIds);
+      const timer = setTimeout(() => setAdminHighlightedIds(new Set()), 2000);
+      prevAdminIdsRef.current = currentIds;
+      return () => clearTimeout(timer);
+    }
+    prevAdminIdsRef.current = currentIds;
+  }, [filteredOrders]);
+
   return (
     <div className="p-4 lg:p-8 w-full max-w-[1600px] mx-auto gap-6 flex flex-col xl:flex-row items-start">
       
@@ -259,7 +271,7 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
               onClick={() => handleTabChange('archives')}
               className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'archives' ? 'bg-secondary text-white shadow-sm' : 'text-muted-foreground hover:bg-muted/50'}`}
             >
-              Soft Deleted ({archivedOrders.length || '…'})
+              Archived ({archivedOrders.length || '…'})
             </button>
           </div>
 
@@ -303,6 +315,7 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
                   
                   // Status badge coloring
                   let statusColor = "bg-muted text-muted-foreground";
+                  if (o.status === "draft") statusColor = "bg-slate-100 text-slate-500 border-dashed";
                   if (o.status === "approved") statusColor = "bg-secondary/10 text-secondary";
                   if (o.status === "submitted") statusColor = "bg-amber-500/10 text-amber-600 font-bold";
                   if (o.status === "clarification_needed") statusColor = "bg-orange-500/10 text-orange-600";
@@ -313,7 +326,7 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
                     <TableRow
                       key={o.id}
                       onClick={() => setSelectedOrder(o)}
-                      className={`cursor-pointer hover:bg-muted/50 border-border group transition-all duration-150 ${isActive ? 'bg-secondary/5 font-medium' : ''}`}
+                      className={`cursor-pointer hover:bg-muted/50 border-border group transition-all duration-150 ${isActive ? 'bg-secondary/5 font-medium' : ''} ${adminHighlightedIds.has(o.id) ? 'animate-new-order' : ''}`}
                     >
                       <TableCell className="font-mono text-center font-bold text-secondary">#{o.id}</TableCell>
                       <TableCell className="font-bold text-foreground">{o.partyName}</TableCell>
@@ -712,6 +725,42 @@ function AdminOrderReviewPanel({ order, onRefresh }: { order: DBOrder, onRefresh
           </div>
         )}
 
+        {/* Archive button - visible for any non-archived order */}
+        {order.isArchived === 0 && (
+          <div className="border-t border-border pt-4">
+            <Button
+              variant="outline"
+              disabled={saving}
+              onClick={async () => {
+                if (!confirm('Archive this order? It will be moved to the Archived tab.')) return;
+                setSaving(true);
+                try {
+                  const token = await getToken();
+                  if (!token) throw new Error("Unauthenticated");
+                  const res = await fetch('/api/orders', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ id: order.id, isArchived: 1 }),
+                  });
+                  if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.error || "Failed to archive order");
+                  }
+                  await onRefresh();
+                } catch (e: any) {
+                  setErrorMessage(e.message || "Failed to archive.");
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              className="w-full border-dashed text-muted-foreground h-10"
+            >
+              <Archive className="h-4 w-4 mr-2" />
+              Archive Order
+            </Button>
+          </div>
+        )}
+
         {/* Chronological Audit Logs Timeline */}
         <div className="space-y-3 pt-4 border-t border-border">
           <span className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
@@ -863,195 +912,328 @@ function AdminOrderReviewPanel({ order, onRefresh }: { order: DBOrder, onRefresh
 // SALES WORKFLOW COMPONENT VIEWS (PartyList, PartyOrderList, OrderDetail)
 // ------------------------------------------------------------
 
-// 1. Party List View
+// Read-only order detail panel for Sales — same layout as AdminOrderReviewPanel without action buttons
+function SalesOrderViewPanel({ order, onRefresh, onBack }: { order: DBOrder; onRefresh: () => void; onBack: () => void }) {
+  let statusColor = "bg-muted text-muted-foreground";
+  if (order.status === "draft") statusColor = "bg-slate-500/10 text-slate-600 border-dashed";
+  if (order.status === "approved") statusColor = "bg-secondary text-white";
+  if (order.status === "submitted") statusColor = "bg-amber-500 text-white font-bold";
+  if (order.status === "clarification_needed") statusColor = "bg-orange-500 text-white";
+  if (order.status === "rejected") statusColor = "bg-destructive text-white";
+
+  return (
+    <Card className="border border-border shadow-md bg-card">
+      <CardHeader className="bg-muted/15 border-b border-border py-4 px-5">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="font-mono text-xs text-secondary font-bold">ORDER SLIP #{order.id}</span>
+            <CardTitle className="text-base font-bold text-foreground">Order Details</CardTitle>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge className={`${statusColor} border-none px-3 py-1`}>
+              {order.status.toUpperCase()}
+            </Badge>
+            <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8 text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-5 space-y-6">
+        
+        {/* Buyer metadata */}
+        <div className="grid grid-cols-2 gap-4 text-xs">
+          <div>
+            <div className="font-semibold text-muted-foreground uppercase tracking-wider">Party / Buyer</div>
+            <div className="font-bold text-foreground mt-0.5 text-sm">{order.partyName}</div>
+          </div>
+          <div>
+            <div className="font-semibold text-muted-foreground uppercase tracking-wider">Location / Branch</div>
+            <div className="font-bold text-foreground mt-0.5 text-sm">{order.location}</div>
+          </div>
+          <div>
+            <div className="font-semibold text-muted-foreground uppercase tracking-wider">Created By</div>
+            <div className="font-bold text-foreground mt-0.5">{order.createdBy || 'Unknown'}</div>
+          </div>
+          <div>
+            <div className="font-semibold text-muted-foreground uppercase tracking-wider">Date Created</div>
+            <div className="font-bold text-foreground mt-0.5">{format(new Date(order.date), "PPP p")}</div>
+          </div>
+        </div>
+
+        {/* Items table */}
+        <div className="space-y-2">
+          <span className="text-xs font-bold text-muted-foreground uppercase">Order Line Items</span>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <Table>
+              <TableHeader className="bg-muted">
+                <TableRow className="border-border">
+                  <TableHead className="py-2 h-8 text-[11px] font-semibold text-foreground">Product</TableHead>
+                  <TableHead className="py-2 h-8 text-[11px] font-semibold text-foreground text-right">Qty</TableHead>
+                  <TableHead className="py-2 h-8 text-[11px] font-semibold text-foreground text-right">Rate</TableHead>
+                  <TableHead className="py-2 h-8 text-[11px] font-semibold text-foreground text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {order.items.map(item => (
+                  <TableRow key={item.id} className="hover:bg-transparent border-border">
+                    <TableCell className="py-2.5 pr-1">
+                      <div className="font-semibold text-xs leading-tight text-foreground">{item.product}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{item.packaging}kg bag</div>
+                    </TableCell>
+                    <TableCell className="py-2.5 text-right font-medium text-xs tabular-nums text-foreground">{item.quantity}</TableCell>
+                    <TableCell className="py-2.5 text-right font-medium text-xs tabular-nums">
+                      <div className="font-semibold text-foreground">₹{item.enteredRate}</div>
+                      <span className="text-[9px] text-muted-foreground block">{item.pricingBasis === 'per_bag' ? '/bag' : '/qtl'}</span>
+                    </TableCell>
+                    <TableCell className="py-2.5 text-right font-bold text-xs text-secondary tabular-nums">
+                      ₹{item.calculatedLineValue?.toLocaleString(undefined, {maximumFractionDigits: 0})}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+
+        {/* Calculated Summaries */}
+        <div className="bg-muted/30 border border-border rounded-xl p-4 space-y-2">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Total Bags</span>
+            <span className="font-semibold text-foreground">{order.items.reduce((sum, i) => sum + i.quantity, 0)} bags</span>
+          </div>
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Total Weight (Quintals)</span>
+            <span className="font-semibold text-foreground">{order.totalWeight.toFixed(2)} Qtl</span>
+          </div>
+          <div className="flex justify-between font-bold text-foreground border-t border-border pt-2 text-sm">
+            <span>Estimated Value</span>
+            <span className="text-secondary text-base">₹{order.totalValue.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+          </div>
+        </div>
+
+        {/* Clarification / Rejection notes */}
+        {order.status === 'clarification_needed' && order.adminRemarks && (
+          <div className="bg-orange-500/5 text-orange-800 p-3 rounded-lg border border-orange-500/15 space-y-1">
+            <div className="text-xs font-bold uppercase">Admin Remarks</div>
+            <div className="text-sm">{order.adminRemarks}</div>
+          </div>
+        )}
+        {order.status === 'rejected' && order.rejectionReason && (
+          <div className="bg-destructive/5 text-destructive p-3 rounded-lg border border-destructive/15 space-y-1">
+            <div className="text-xs font-bold uppercase">Rejection Reason</div>
+            <div className="text-sm">{order.rejectionReason}</div>
+          </div>
+        )}
+
+        {/* Audit Logs */}
+        {order.auditLogs && order.auditLogs.length > 0 && (
+          <div className="space-y-3 pt-2 border-t border-border">
+            <span className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+              <History className="h-4 w-4 text-secondary" />
+              <span>Order History</span>
+            </span>
+            <div className="relative border-l border-border pl-4 ml-2.5 space-y-4 text-xs">
+              {order.auditLogs.map(log => {
+                let logIcon = <History className="h-3 w-3" />;
+                let actionText = log.action;
+                let bgCircle = "bg-muted text-muted-foreground";
+
+                if (log.action === "CREATED") { logIcon = <Plus className="h-3 w-3" />; actionText = "Created"; bgCircle = "bg-sky-500/15 text-sky-600"; }
+                else if (log.action === "STATUS_CHANGE") {
+                  const d = JSON.parse(log.details || '{}');
+                  logIcon = <ClipboardList className="h-3 w-3" />;
+                  actionText = `Status: ${d.from} ➔ ${d.to}`;
+                  bgCircle = "bg-secondary/15 text-secondary";
+                }
+                else if (log.action === "PRICE_MODIFIED") { logIcon = <Edit3 className="h-3 w-3" />; actionText = "Price Modified"; bgCircle = "bg-amber-500/15 text-amber-600"; }
+
+                return (
+                  <div key={log.id} className="relative space-y-1">
+                    <span className={`absolute -left-[27px] top-0.5 rounded-full p-1 ${bgCircle}`}>{logIcon}</span>
+                    <div className="flex justify-between font-bold text-foreground">
+                      <span>{actionText}</span>
+                      <span className="text-[10px] text-muted-foreground font-semibold">{format(new Date(log.timestamp), "MMM d, h:mm a")}</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">by {log.userEmail}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Print button */}
+        <Button variant="outline" className="w-full h-10" onClick={() => window.print()}>
+          <Printer className="h-4 w-4 mr-2" />
+          Print Order
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// 1. Party List View — aligned with AdminDashboard layout
 function PartyList({ orders, loading, error, onRetry }: { orders: DBOrder[] | null, loading: boolean, error: string | null, onRetry: () => void }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
   const searchTerm = searchParams.get('q') || '';
-  const sortField = (searchParams.get('sort') as PartySortField) || 'lastOrderDate';
-  const sortDirection = (searchParams.get('dir') as SortDirection) || 'desc';
-  const page = parseInt(searchParams.get('page') || '1', 10);
-  const ITEMS_PER_PAGE = 20;
-
-  const [localSearch, setLocalSearch] = useState(searchTerm);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchParams(prev => {
-        const newParams = new URLSearchParams(prev);
-        if (localSearch) {
-          newParams.set('q', localSearch);
-        } else {
-          newParams.delete('q');
-        }
-        if (localSearch !== searchTerm) {
-          newParams.set('page', '1');
-        }
-        return newParams;
-      }, { replace: true });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [localSearch, setSearchParams, searchTerm]);
+  const view = searchParams.get('view') || 'active';
+  const [selectedOrder, setSelectedOrder] = useState<DBOrder | null>(null);
 
   const safeOrders = orders || [];
-  
-  const partySummaries: PartySummary[] = useMemo(() => Object.values(
-    safeOrders.reduce((acc, order) => {
-      if (!acc[order.partyName]) {
-        acc[order.partyName] = {
-          partyName: order.partyName,
-          location: order.location,
-          totalOrders: 0,
-          totalWeight: 0,
-          lastOrderDate: order.date
-        };
-      }
-      acc[order.partyName].totalOrders += 1;
-      acc[order.partyName].totalWeight += order.totalWeight;
-      if (new Date(order.date) > new Date(acc[order.partyName].lastOrderDate)) {
-        acc[order.partyName].lastOrderDate = order.date;
-      }
-      return acc;
-    }, {} as Record<string, PartySummary>)
-  ), [orders]);
+  const filteredOrders = useMemo(() => {
+    return safeOrders.filter(o => {
+      const matchSearch = !searchTerm || 
+        o.partyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        o.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        o.id.toString() === searchTerm;
+      if (!matchSearch) return false;
+      if (view === 'history') return o.status === 'approved' || o.status === 'rejected';
+      return o.status === 'draft' || o.status === 'submitted' || o.status === 'clarification_needed' || o.status === 'on_hold';
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [safeOrders, view, searchTerm]);
 
-  const sortedParties = useMemo(() => {
-    const filtered = partySummaries.filter(party => 
-      party.partyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      party.location.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    return filtered.sort((a, b) => {
-      let comparison = 0;
-      switch (sortField) {
-        case 'partyName': comparison = a.partyName.localeCompare(b.partyName); break;
-        case 'location': comparison = a.location.localeCompare(b.location); break;
-        case 'totalOrders': comparison = a.totalOrders - b.totalOrders; break;
-        case 'totalWeight': comparison = a.totalWeight - b.totalWeight; break;
-        case 'lastOrderDate': comparison = new Date(a.lastOrderDate).getTime() - new Date(b.lastOrderDate).getTime(); break;
-      }
-      return sortDirection === 'asc' ? comparison : -comparison;
-    });
-  }, [partySummaries, searchTerm, sortField, sortDirection]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedParties.length / ITEMS_PER_PAGE));
-  const validPage = Math.max(1, Math.min(page, totalPages));
-  
-  const paginatedParties = useMemo(() => {
-    const startIdx = (validPage - 1) * ITEMS_PER_PAGE;
-    return sortedParties.slice(startIdx, startIdx + ITEMS_PER_PAGE);
-  }, [sortedParties, validPage]);
-
-  const handleSort = (field: PartySortField) => {
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      if (field === sortField) {
-        newParams.set('dir', sortDirection === 'asc' ? 'desc' : 'asc');
-      } else {
-        newParams.set('sort', field);
-        newParams.set('dir', field === 'lastOrderDate' ? 'desc' : 'asc');
-      }
-      newParams.set('page', '1');
-      return newParams;
-    });
-  };
-
-  const handlePageChange = (newPage: number) => {
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      newParams.set('page', newPage.toString());
-      return newParams;
-    });
-  };
-
-  const renderSortIcon = (field: PartySortField) => {
-    if (sortField !== field) return <ArrowUpDown className="ml-1.5 h-3.5 w-3.5 text-muted-foreground/30" />;
-    return sortDirection === 'asc' 
-      ? <ArrowUp className="ml-1.5 h-3.5 w-3.5 text-secondary" />
-      : <ArrowDown className="ml-1.5 h-3.5 w-3.5 text-secondary" />;
-  };
+  // Highlight newly appeared orders with animation
+  const prevIdsRef = useRef<Set<number>>(new Set());
+  const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set(filteredOrders.map(o => o.id));
+    const newIds = new Set([...currentIds].filter(id => !prevIdsRef.current.has(id)));
+    if (newIds.size > 0) {
+      setHighlightedIds(newIds);
+      const timer = setTimeout(() => setHighlightedIds(new Set()), 2000);
+      prevIdsRef.current = currentIds;
+      return () => clearTimeout(timer);
+    }
+    prevIdsRef.current = currentIds;
+  }, [filteredOrders]);
 
   return (
-    <div className="p-4 lg:p-8 w-full max-w-[1400px] mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+    <div className="p-4 lg:p-8 w-full max-w-[1600px] mx-auto gap-6 flex flex-col xl:flex-row items-start">
+      
+      {/* Table Container */}
+      <div className="flex-1 w-full space-y-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Client Party Ledger</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {view === 'active' ? 'Active Orders' : 'Order History'}
+          </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Choose a corporate client buyer to review historical sheets and logs.
+            {view === 'active' ? 'Drafts, submissions, and orders needing clarification.' : 'Approved and rejected orders.'}
           </p>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
-            type="search"
-            placeholder="Filter party / branch…"
-            className="pl-8 bg-card border-border h-9"
-            value={localSearch}
-            onChange={(e) => setLocalSearch(e.target.value)}
-          />
+
+        {/* Tabs & Search */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-2">
+          <div className="flex gap-1.5 select-none">
+            <button
+              onClick={() => { setSearchParams(prev => { const p = new URLSearchParams(prev); p.delete('view'); return p; }); setSelectedOrder(null); }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${view === 'active' ? 'bg-secondary text-white shadow-sm' : 'text-muted-foreground hover:bg-muted/50'}`}
+            >
+              Active
+            </button>
+            <button
+              onClick={() => { setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('view', 'history'); return p; }); setSelectedOrder(null); }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${view === 'history' ? 'bg-secondary text-white shadow-sm' : 'text-muted-foreground hover:bg-muted/50'}`}
+            >
+              History
+            </button>
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search party, location, or ID…"
+              className="pl-8 bg-card border-border h-9 text-sm"
+              value={searchTerm}
+              onChange={(e) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('q', e.target.value); return p; })}
+            />
+          </div>
+        </div>
+
+        {/* Orders Table */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader className="bg-muted">
+              <TableRow className="border-border">
+                <TableHead className="w-[80px] font-semibold text-foreground text-center">ID</TableHead>
+                <TableHead className="font-semibold text-foreground">Party Name</TableHead>
+                <TableHead className="font-semibold text-foreground">Location</TableHead>
+                <TableHead className="font-semibold text-foreground">Date</TableHead>
+                <TableHead className="font-semibold text-foreground text-right">Items</TableHead>
+                <TableHead className="font-semibold text-foreground text-right">Weight</TableHead>
+                <TableHead className="font-semibold text-foreground text-right">Value</TableHead>
+                <TableHead className="font-semibold text-foreground text-center">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredOrders.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-16 text-center text-muted-foreground">No orders found.</TableCell>
+                </TableRow>
+              ) : (
+                filteredOrders.map(o => {
+                  const isActive = selectedOrder?.id === o.id;
+                  const totalBags = o.items.reduce((sum, i) => sum + i.quantity, 0);
+
+                  let statusColor = "bg-muted text-muted-foreground border-none";
+                  if (o.status === "draft") statusColor = "bg-slate-100 text-slate-500 border-dashed";
+                  if (o.status === "approved") statusColor = "bg-secondary/10 text-secondary border-none";
+                  if (o.status === "submitted") statusColor = "bg-amber-500/10 text-amber-600 font-bold border-none";
+                  if (o.status === "clarification_needed") statusColor = "bg-orange-500/10 text-orange-600 border-none";
+                  if (o.status === "rejected") statusColor = "bg-destructive/10 text-destructive border-none";
+                  if (o.status === "on_hold") statusColor = "bg-zinc-500/10 text-zinc-600 border-none";
+
+                  return (
+                    <TableRow
+                      key={o.id}
+                      onClick={() => setSelectedOrder(o)}
+                      className={`cursor-pointer hover:bg-muted/50 border-border transition-all duration-150 ${isActive ? 'bg-secondary/5 font-medium' : ''} ${highlightedIds.has(o.id) ? 'animate-new-order' : ''}`}
+                    >
+                      <TableCell className="font-mono font-bold text-secondary text-center">#{o.id}</TableCell>
+                      <TableCell className="font-bold text-foreground">{o.partyName}</TableCell>
+                      <TableCell className="text-muted-foreground text-xs">{o.location}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{format(new Date(o.date), "MMM d, h:mm a")}</TableCell>
+                      <TableCell className="text-right font-medium text-xs">{o.items.length} SKUs ({totalBags} bags)</TableCell>
+                      <TableCell className="text-right font-medium text-xs text-foreground">{o.totalWeight.toFixed(2)} Qtl</TableCell>
+                      <TableCell className="text-right font-bold text-xs text-secondary">₹{o.totalValue.toLocaleString()}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge className={statusColor}>
+                          {o.status === 'clarification_needed' ? 'CLARIFICATION' : o.status.toUpperCase()}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-xl shadow-sm overflow-x-auto">
-        <Table>
-          <TableHeader className="bg-muted">
-            <TableRow className="border-border">
-              <TableHead className="font-semibold text-foreground">
-                <button className="flex items-center hover:text-secondary py-1" onClick={() => handleSort('partyName')}>
-                  Party Name {renderSortIcon('partyName')}
-                </button>
-              </TableHead>
-              <TableHead className="font-semibold text-foreground">
-                <button className="flex items-center hover:text-secondary py-1" onClick={() => handleSort('location')}>
-                  Location {renderSortIcon('location')}
-                </button>
-              </TableHead>
-              <TableHead className="font-semibold text-foreground">
-                <button className="flex items-center hover:text-secondary py-1" onClick={() => handleSort('lastOrderDate')}>
-                  Last Order {renderSortIcon('lastOrderDate')}
-                </button>
-              </TableHead>
-              <TableHead className="text-right font-semibold text-foreground">
-                <button className="flex items-center justify-end w-full hover:text-secondary py-1" onClick={() => handleSort('totalOrders')}>
-                  Total Orders {renderSortIcon('totalOrders')}
-                </button>
-              </TableHead>
-              <TableHead className="text-right font-semibold text-foreground">
-                <button className="flex items-center justify-end w-full hover:text-secondary py-1" onClick={() => handleSort('totalWeight')}>
-                  Total Weight {renderSortIcon('totalWeight')}
-                </button>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginatedParties.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-16 text-center text-muted-foreground">
-                  No parties found.
-                </TableCell>
-              </TableRow>
-            ) : (
-              paginatedParties.map(party => (
-                <TableRow 
-                  key={party.partyName} 
-                  className="cursor-pointer hover:bg-muted/50 border-border" 
-                  onClick={() => navigate(`/history/${encodeURIComponent(party.partyName)}`)}
-                >
-                  <TableCell className="font-bold text-secondary">{party.partyName}</TableCell>
-                  <TableCell className="text-muted-foreground text-xs">{party.location}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {format(new Date(party.lastOrderDate), "MMM d, yyyy")}
-                  </TableCell>
-                  <TableCell className="text-right font-semibold text-foreground">{party.totalOrders}</TableCell>
-                  <TableCell className="text-right font-bold text-secondary">
-                    {party.totalWeight.toFixed(2)} Qtl
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      {/* Detail Panel */}
+      <div className="w-full xl:w-[480px] shrink-0 xl:sticky xl:top-4 max-h-[calc(100vh-6rem)] overflow-y-auto scrollbar-hide">
+        <AnimatePresence mode="wait">
+          {selectedOrder ? (
+            <motion.div
+              key={selectedOrder.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="w-full"
+            >
+              <SalesOrderViewPanel order={selectedOrder} onRefresh={onRetry} onBack={() => setSelectedOrder(null)} />
+            </motion.div>
+          ) : (
+            <div className="border border-border border-dashed rounded-xl p-12 text-center text-muted-foreground bg-card py-24 flex flex-col items-center justify-center space-y-3">
+              <FileText className="h-10 w-10 text-muted-foreground/30" />
+              <p className="font-bold text-foreground text-sm">Select an order</p>
+              <p className="text-xs max-w-[200px]">Click any row to view order details, items, and audit history.</p>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
+
     </div>
   );
 }
@@ -1060,21 +1242,29 @@ function PartyList({ orders, loading, error, onRetry }: { orders: DBOrder[] | nu
 function PartyOrderList({ orders, loading, error, onRetry }: { orders: DBOrder[] | null, loading: boolean, error: string | null, onRetry: () => void }) {
   const { partyName } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const view = searchParams.get('view') || 'active';
   const safeOrders = orders || [];
   const partyOrders = useMemo(() => 
-    safeOrders.filter(o => o.partyName === partyName).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), 
-    [safeOrders, partyName]
+    safeOrders.filter(o => {
+      if (o.partyName !== partyName) return false;
+      if (view === 'history') return o.status === 'approved' || o.status === 'rejected';
+      return o.status === 'draft' || o.status === 'submitted' || o.status === 'clarification_needed' || o.status === 'on_hold';
+    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), 
+    [safeOrders, partyName, view]
   );
 
   return (
     <div className="p-4 lg:p-8 w-full max-w-[1400px] mx-auto space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" onClick={() => navigate('/history')} className="border-border">
+        <Button variant="outline" size="icon" onClick={() => navigate(`/history?${searchParams.toString()}`)} className="border-border">
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Orders: {partyName}</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">List of orders placed by this party.</p>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            {view === 'history' ? 'Approved and rejected orders.' : 'Active orders — drafts, submissions, and clarifications.'}
+          </p>
         </div>
       </div>
 
@@ -1101,6 +1291,7 @@ function PartyOrderList({ orders, loading, error, onRetry }: { orders: DBOrder[]
                 const totalBags = order.items.reduce((sum, i) => sum + i.quantity, 0);
                 
                 let statusColor = "bg-muted text-muted-foreground";
+                if (order.status === "draft") statusColor = "bg-slate-100 text-slate-500 border-dashed";
                 if (order.status === "approved") statusColor = "bg-secondary/10 text-secondary border-none";
                 if (order.status === "submitted") statusColor = "bg-amber-500/10 text-amber-600 font-bold border-none";
                 if (order.status === "clarification_needed") statusColor = "bg-orange-500/10 text-orange-600 border-none animate-pulse";
@@ -1232,6 +1423,7 @@ function OrderDetail({ orders, loading, error, onRetry }: { orders: DBOrder[] | 
 
   // Status pills formatting
   let statusColor = "bg-muted text-muted-foreground";
+  if (order.status === "draft") statusColor = "bg-slate-500/10 text-slate-600 border-dashed";
   if (order.status === "approved") statusColor = "bg-secondary text-white";
   if (order.status === "submitted") statusColor = "bg-amber-500 text-white font-bold";
   if (order.status === "clarification_needed") statusColor = "bg-orange-500 text-white animate-pulse";

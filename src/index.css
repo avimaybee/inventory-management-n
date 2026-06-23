@@ -22,6 +22,15 @@ body {
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+@keyframes new-order-highlight {
+  0% { background-color: rgba(20, 83, 45, 0.15); }
+  100% { background-color: transparent; }
+}
+
+.animate-new-order {
+  animation: new-order-highlight 2s ease-out;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

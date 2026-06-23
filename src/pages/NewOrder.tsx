@@ -1193,7 +1193,7 @@ export function NewOrder() {
               <Plus className="h-4 w-4 mr-2" />
               Create Another Order
             </Button>
-            <Button variant="outline" size="lg" onClick={() => navigate(`/history/${encodeURIComponent(savedOrderDetails.partyName)}`)} className="w-full">
+            <Button variant="outline" size="lg" onClick={() => navigate('/history')} className="w-full">
               View Order History
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
