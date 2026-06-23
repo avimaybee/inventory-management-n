@@ -164,10 +164,41 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
   const [activeTab, setActiveTab] = useState<'pending' | 'clarifications' | 'history' | 'archives'>('pending');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<DBOrder | null>(null);
+  const [archivedOrders, setArchivedOrders] = useState<DBOrder[]>([]);
+  const [archivesLoading, setArchivesLoading] = useState(false);
+  const { getToken } = useAuth();
+
+  const fetchArchived = async () => {
+    setArchivesLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch('/api/orders?show=archived', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setArchivedOrders(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setArchivesLoading(false);
+    }
+  };
+
+  const handleTabChange = (tab: 'pending' | 'clarifications' | 'history' | 'archives') => {
+    setActiveTab(tab);
+    setSelectedOrder(null);
+    if (tab === 'archives' && archivedOrders.length === 0) {
+      fetchArchived();
+    }
+  };
 
   // Filter orders by tab and query
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => {
+    const source = activeTab === 'archives' ? archivedOrders : orders;
+    return source.filter(o => {
       const matchSearch = 
         o.partyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         o.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -189,7 +220,7 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
       }
       return true;
     });
-  }, [orders, activeTab, searchQuery]);
+  }, [orders, archivedOrders, activeTab, searchQuery]);
 
   return (
     <div className="p-4 lg:p-8 w-full max-w-[1600px] mx-auto gap-6 flex flex-col xl:flex-row items-start">
@@ -225,10 +256,10 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
               History ({orders.filter(o => (o.status === 'approved' || o.status === 'rejected') && o.isArchived === 0).length})
             </button>
             <button
-              onClick={() => { setActiveTab('archives'); setSelectedOrder(null); }}
+              onClick={() => handleTabChange('archives')}
               className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'archives' ? 'bg-secondary text-white shadow-sm' : 'text-muted-foreground hover:bg-muted/50'}`}
             >
-              Soft Deleted ({orders.filter(o => o.isArchived === 1).length})
+              Soft Deleted ({archivedOrders.length || '…'})
             </button>
           </div>
 

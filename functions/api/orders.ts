@@ -114,12 +114,14 @@ export async function onRequestGet(context) {
       return unauthorized('Access denied. Invalid user role.');
     }
 
+    const url = new URL(context.request.url);
+    const showArchived = url.searchParams.get('show') === 'archived';
+
     let allOrders;
-    if (isAdmin) {
-      // Admin sees everything
-      allOrders = await db.select().from(orders).orderBy(desc(orders.date));
+    if (showArchived) {
+      if (!isAdmin) return unauthorized();
+      allOrders = await db.select().from(orders).where(eq(orders.isArchived, 1)).orderBy(desc(orders.date));
     } else {
-      // Sales sees only active (non-archived) orders
       allOrders = await db.select().from(orders).where(eq(orders.isArchived, 0)).orderBy(desc(orders.date));
     }
 
