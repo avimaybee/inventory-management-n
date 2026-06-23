@@ -287,14 +287,14 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
         </div>
 
         {/* Dashboard table list */}
-        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          <Table>
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-x-auto">
+          <Table className="min-w-[750px]">
             <TableHeader className="bg-muted">
               <TableRow className="border-border">
-                <TableHead className="w-[80px] font-semibold text-foreground text-center">ID</TableHead>
+                <TableHead className="w-[70px] font-semibold text-foreground text-center">ID</TableHead>
                 <TableHead className="font-semibold text-foreground">Party Name</TableHead>
                 <TableHead className="font-semibold text-foreground">Location</TableHead>
-                <TableHead className="font-semibold text-foreground">Date Submitted</TableHead>
+                <TableHead className="font-semibold text-foreground whitespace-nowrap">Date Submitted</TableHead>
                 <TableHead className="font-semibold text-foreground text-right">Items</TableHead>
                 <TableHead className="font-semibold text-foreground text-right">Weight</TableHead>
                 <TableHead className="font-semibold text-foreground text-right">Value</TableHead>
@@ -329,14 +329,14 @@ function AdminDashboard({ orders, onRefresh }: { orders: DBOrder[], onRefresh: (
                       className={`cursor-pointer hover:bg-muted/50 border-border group transition-all duration-150 ${isActive ? 'bg-secondary/5 font-medium' : ''} ${adminHighlightedIds.has(o.id) ? 'animate-new-order' : ''}`}
                     >
                       <TableCell className="font-mono text-center font-bold text-secondary">#{o.id}</TableCell>
-                      <TableCell className="font-bold text-foreground">{o.partyName}</TableCell>
-                      <TableCell className="text-muted-foreground text-xs">{o.location}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{format(new Date(o.date), "MMM d, h:mm a")}</TableCell>
-                      <TableCell className="text-right font-medium text-xs">{o.items.length} SKUs ({totalBags} bags)</TableCell>
-                      <TableCell className="text-right font-medium text-xs text-foreground">{o.totalWeight.toFixed(2)} Qtl</TableCell>
-                      <TableCell className="text-right font-bold text-xs text-secondary">₹{o.totalValue.toLocaleString()}</TableCell>
+                      <TableCell className="font-bold text-foreground truncate max-w-[180px]">{o.partyName}</TableCell>
+                      <TableCell className="text-muted-foreground text-xs truncate max-w-[140px]">{o.location}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{format(new Date(o.date), "MMM d, h:mm a")}</TableCell>
+                      <TableCell className="text-right font-medium text-xs whitespace-nowrap">{o.items.length} SKUs ({totalBags} bags)</TableCell>
+                      <TableCell className="text-right font-medium text-xs text-foreground whitespace-nowrap">{o.totalWeight.toFixed(2)} Qtl</TableCell>
+                      <TableCell className="text-right font-bold text-xs text-secondary whitespace-nowrap">₹{o.totalValue.toLocaleString()}</TableCell>
                       <TableCell className="text-center">
-                        <Badge className={`${statusColor} border-none`}>
+                        <Badge className={`${statusColor} border-none whitespace-nowrap`}>
                           {o.status.toUpperCase()}
                         </Badge>
                       </TableCell>
@@ -1152,11 +1152,11 @@ function PartyList({ orders, loading, error, onRetry }: { orders: DBOrder[] | nu
         </div>
 
         {/* Orders Table */}
-        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          <Table>
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-x-auto">
+          <Table className="min-w-[750px]">
             <TableHeader className="bg-muted">
               <TableRow className="border-border">
-                <TableHead className="w-[80px] font-semibold text-foreground text-center">ID</TableHead>
+                <TableHead className="w-[70px] font-semibold text-foreground text-center">ID</TableHead>
                 <TableHead className="font-semibold text-foreground">Party Name</TableHead>
                 <TableHead className="font-semibold text-foreground">Location</TableHead>
                 <TableHead className="font-semibold text-foreground">Date</TableHead>
@@ -1191,12 +1191,12 @@ function PartyList({ orders, loading, error, onRetry }: { orders: DBOrder[] | nu
                       className={`cursor-pointer hover:bg-muted/50 border-border transition-all duration-150 ${isActive ? 'bg-secondary/5 font-medium' : ''} ${highlightedIds.has(o.id) ? 'animate-new-order' : ''}`}
                     >
                       <TableCell className="font-mono font-bold text-secondary text-center">#{o.id}</TableCell>
-                      <TableCell className="font-bold text-foreground">{o.partyName}</TableCell>
-                      <TableCell className="text-muted-foreground text-xs">{o.location}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{format(new Date(o.date), "MMM d, h:mm a")}</TableCell>
-                      <TableCell className="text-right font-medium text-xs">{o.items.length} SKUs ({totalBags} bags)</TableCell>
-                      <TableCell className="text-right font-medium text-xs text-foreground">{o.totalWeight.toFixed(2)} Qtl</TableCell>
-                      <TableCell className="text-right font-bold text-xs text-secondary">₹{o.totalValue.toLocaleString()}</TableCell>
+                      <TableCell className="font-bold text-foreground truncate max-w-[180px]">{o.partyName}</TableCell>
+                      <TableCell className="text-muted-foreground text-xs truncate max-w-[140px]">{o.location}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{format(new Date(o.date), "MMM d, h:mm a")}</TableCell>
+                      <TableCell className="text-right font-medium text-xs whitespace-nowrap">{o.items.length} SKUs ({totalBags} bags)</TableCell>
+                      <TableCell className="text-right font-medium text-xs text-foreground whitespace-nowrap">{o.totalWeight.toFixed(2)} Qtl</TableCell>
+                      <TableCell className="text-right font-bold text-xs text-secondary whitespace-nowrap">₹{o.totalValue.toLocaleString()}</TableCell>
                       <TableCell className="text-center">
                         <Badge className={statusColor}>
                           {o.status === 'clarification_needed' ? 'CLARIFICATION' : o.status.toUpperCase()}
